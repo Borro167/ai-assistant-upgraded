@@ -1,0 +1,10 @@
+{
+  "name": "ai-assistant-upgraded",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "openai": "^4.21.1",
+    "formdata-node": "^6.0.1",
+    "node-fetch": "^3.3.2"
+  }
+}

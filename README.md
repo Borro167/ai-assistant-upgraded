@@ -1,0 +1,3 @@
+# Assistant Regressivo – AI Chat + Regressione
+
+Documentazione del progetto...
