@@ -75,21 +75,21 @@ export const handler = async (event) => {
     } while (runStatus.status !== 'completed');
 
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
-    const lastMessage = messagesResponse.data[0];
+    const lastMessage = messagesResponse.data?.[0] || { content: [] };
 
-    console.log("🟡 DEBUG: lastMessage =", JSON.stringify(lastMessage, null, 2));
+    console.log("🟡 DEBUG lastMessage =", JSON.stringify(lastMessage, null, 2));
 
     const textReply = lastMessage.content
       ?.filter(c => c.type === 'text')
-      ?.map(c => c.text)
+      ?.map(c => c.text?.value)
       ?.join('\n')
-      ?.trim();
+      ?.trim() || '[Nessuna risposta generata]';
 
     return {
       statusCode: 200,
       body: JSON.stringify({
         threadId: thread.id,
-        message: textReply || '[Nessuna risposta generata]',
+        message: textReply,
       }),
     };
   } catch (err) {
