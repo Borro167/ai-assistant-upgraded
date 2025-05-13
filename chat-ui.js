@@ -1,60 +1,73 @@
-let fileToUpload = null;
+let selectedFile = null;
 
-async function sendMessage() {
-  const input = document.getElementById("message");
-  const text = input.value.trim();
-  if (!text && !fileToUpload) return;
-
-  appendMessage(text || "File inviato per analisi", "user");
-
-  const formData = new FormData();
-  formData.append("message", text || "Analizza questo file");
-  if (fileToUpload) {
-    formData.append("file", fileToUpload);
-  }
-
-  const res = await fetch("/.netlify/functions/chat", {
-    method: "POST",
-    body: formData,
-  });
-
-  const json = await res.json();
-  appendMessage(json.reply || "[Nessuna risposta]", "bot");
-
-  document.getElementById("message").value = "";
-  fileToUpload = null;
-  document.getElementById("file-status").textContent = "Nessun file caricato";
-}
-
-function appendMessage(text, sender) {
-  const chat = document.getElementById("chat");
-  const msg = document.createElement("div");
-  msg.className = `message ${sender}`;
-  msg.textContent = text;
-  chat.appendChild(msg);
-  chat.scrollTop = chat.scrollHeight;
-}
-
+const chat = document.getElementById("chat");
+const input = document.getElementById("message");
+const sendBtn = document.getElementById("sendBtn");
 const dropZone = document.getElementById("drop-zone");
+const fileStatus = document.getElementById("file-status");
+
+// Invio messaggio al click o Enter
+sendBtn.addEventListener("click", sendMessage);
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendMessage();
+});
+
+// Drag and Drop file
 dropZone.addEventListener("dragover", (e) => {
   e.preventDefault();
   dropZone.classList.add("dragover");
 });
+
 dropZone.addEventListener("dragleave", () => {
   dropZone.classList.remove("dragover");
 });
+
 dropZone.addEventListener("drop", (e) => {
   e.preventDefault();
   dropZone.classList.remove("dragover");
+  if (e.dataTransfer.files.length > 0) {
+    selectedFile = e.dataTransfer.files[0];
+    fileStatus.textContent = `File caricato: ${selectedFile.name}`;
+  }
+});
 
-  const file = e.dataTransfer.files[0];
-  if (!file) return;
+// Funzione principale
+async function sendMessage() {
+  const text = input.value.trim();
+  if (!text && !selectedFile) return;
 
-  if (!["application/pdf", "text/csv"].includes(file.type) && !file.name.endsWith(".csv")) {
-    alert("Solo file PDF o CSV sono supportati.");
-    return;
+  appendMessage("user", text || `[File: ${selectedFile.name}]`);
+
+  const formData = new FormData();
+  formData.append("message", text || "Analizza il file allegato");
+  if (selectedFile) {
+    formData.append("file", selectedFile);
   }
 
-  fileToUpload = file;
-  document.getElementById("file-status").textContent = `File pronto: ${file.name}`;
-});
+  try {
+    const res = await fetch("/.netlify/functions/chat", {
+      method: "POST",
+      body: formData
+    });
+    const data = await res.json();
+
+    const reply = data.message || "[Nessuna risposta]";
+    appendMessage("bot", reply);
+  } catch (err) {
+    console.error(err);
+    appendMessage("bot", "[Errore di rete]");
+  }
+
+  input.value = "";
+  selectedFile = null;
+  fileStatus.textContent = "Nessun file caricato";
+}
+
+// Aggiunge messaggio alla chat
+function appendMessage(role, text) {
+  const div = document.createElement("div");
+  div.className = `message ${role === "user" ? "user" : "bot"}`;
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
