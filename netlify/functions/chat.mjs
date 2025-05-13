@@ -1,115 +1,74 @@
-import { ReadableStream } from 'node:stream/web';
 import { parse } from 'formdata-node/parser';
 import { FormData } from 'formdata-node';
+import { fileFromPath } from 'formdata-node/file-from-path';
 import OpenAI from 'openai';
-import fetch from 'node-fetch';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 export const handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method not allowed" };
+  if (event.httpMethod !== 'POST') {
+    return {
+      statusCode: 405,
+      body: 'Method not allowed',
+    };
   }
 
-  const formData = await readFormData(event);
-  const message = formData.get("message") || "";
-  const file = formData.get("file");
-
   try {
-    const thread = await openai.beta.threads.create();
-    const threadId = thread.id;
+    const formData = await parse(event);
 
-    let fileId;
-    if (file) {
+    const userMessage = formData.get('message') || '';
+    const file = formData.get('file');
+    const threadId = formData.get('threadId') || null;
+
+    const thread = threadId
+      ? { id: threadId }
+      : await openai.beta.threads.create();
+
+    const messages = [
+      {
+        role: 'user',
+        content: userMessage,
+      },
+    ];
+
+    if (file && file.stream) {
       const upload = await openai.files.create({
         file: file.stream,
-        purpose: "assistants",
+        purpose: 'assistants',
       });
-      fileId = upload.id;
 
-      await openai.beta.threads.messages.create(threadId, {
-        role: "user",
-        content: message,
-        file_ids: [fileId],
-      });
-    } else {
-      await openai.beta.threads.messages.create(threadId, {
-        role: "user",
-        content: message,
-      });
+      messages[0].file_ids = [upload.id];
     }
 
-    const run = await openai.beta.threads.runs.create(threadId, {
+    await openai.beta.threads.messages.create(thread.id, messages[0]);
+
+    const run = await openai.beta.threads.runs.create(thread.id, {
       assistant_id: process.env.OPENAI_ASSISTANT_ID,
     });
 
-    let result;
-    while (true) {
-      result = await openai.beta.threads.runs.retrieve(threadId, run.id);
-      if (result.status === "completed" || result.status === "requires_action") break;
-      await new Promise((r) => setTimeout(r, 1000));
-    }
+    let runStatus;
+    do {
+      runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+      await new Promise((res) => setTimeout(res, 1000));
+    } while (runStatus.status !== 'completed');
 
-    if (result.status === "requires_action") {
-      const tool = result.required_action.submit_tool_outputs.tool_calls[0];
-      const { name, arguments: args } = tool.function;
-      const parsedArgs = JSON.parse(args);
-
-      let toolResponse = "";
-      if (name === "analizza_file_regressione") {
-        const res = await fetch(`${process.env.RENDER_BACKEND_URL}/analizza`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ file_url: parsedArgs.file_url }),
-        });
-        toolResponse = await res.text();
-      }
-
-      if (name === "stima") {
-        const res = await fetch(`${process.env.RENDER_BACKEND_URL}/stima`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(parsedArgs),
-        });
-        toolResponse = await res.text();
-      }
-
-      await openai.beta.threads.runs.submitToolOutputs(threadId, run.id, {
-        tool_outputs: [
-          {
-            tool_call_id: tool.id,
-            output: toolResponse,
-          },
-        ],
-      });
-
-      while (true) {
-        result = await openai.beta.threads.runs.retrieve(threadId, run.id);
-        if (result.status === "completed") break;
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-    }
-
-    const messages = await openai.beta.threads.messages.list(threadId);
-    const last = messages.data.find((m) => m.role === "assistant");
+    const messagesResponse = await openai.beta.threads.messages.list(thread.id);
+    const lastMessage = messagesResponse.data[0];
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ reply: last.content[0].text.value }),
+      body: JSON.stringify({
+        threadId: thread.id,
+        message: lastMessage.content,
+      }),
     };
   } catch (err) {
+    console.error('Error in handler:', err);
     return {
       statusCode: 500,
-      body: `Errore: ${err.message}`,
+      body: JSON.stringify({ error: err.message }),
     };
   }
 };
-
-async function readFormData(event) {
-  const boundary = event.headers["content-type"].split("boundary=")[1];
-  const buf = Buffer.from(event.body, "base64");
-  const stream = ReadableStream.from(buf);
-  return await parse(stream, boundary);
-}
