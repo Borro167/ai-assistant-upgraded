@@ -82,11 +82,13 @@ export const handler = async (event) => {
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
     const lastMessage = messagesResponse.data[0];
 
+    const textReply = lastMessage.content?.[0]?.text || '[Nessuna risposta]';
+
     return {
       statusCode: 200,
       body: JSON.stringify({
         threadId: thread.id,
-        message: lastMessage.content,
+        message: textReply,
       }),
     };
   } catch (err) {
