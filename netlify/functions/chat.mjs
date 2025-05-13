@@ -1,27 +1,26 @@
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
-import stream from 'stream';
+import { Readable } from 'stream';
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-function eventToReq(event) {
-  const readable = new stream.Readable();
-  readable._read = () => {}; // required
-  readable.push(Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8'));
-  readable.push(null);
+// Converte event.body in uno stream leggibile
+function buildReadableRequest(event) {
+  const buffer = Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8');
+  const readable = Readable.from([buffer]);
 
-  return {
-    headers: event.headers,
-    method: event.httpMethod,
-    url: '/',
-    ...readable,
-  };
+  // aggiungi intestazioni e metodo simulati
+  readable.headers = event.headers;
+  readable.method = event.httpMethod;
+  readable.url = '/';
+
+  return readable;
 }
 
-function parseMultipartForm(req) {
+function parseFormData(req) {
   return new Promise((resolve, reject) => {
     const form = new IncomingForm({ uploadDir: '/tmp', keepExtensions: true });
 
@@ -41,8 +40,8 @@ export const handler = async (event) => {
   }
 
   try {
-    const req = eventToReq(event);
-    const { fields, files } = await parseMultipartForm(req);
+    const req = buildReadableRequest(event);
+    const { fields, files } = await parseFormData(req);
 
     const userMessage = fields.message || '';
     const threadId = fields.threadId || null;
