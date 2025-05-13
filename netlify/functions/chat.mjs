@@ -10,18 +10,15 @@ const openai = new OpenAI({
 function buildReadableRequest(event) {
   const buffer = Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8');
   const readable = Readable.from([buffer]);
-
   readable.headers = event.headers;
   readable.method = event.httpMethod;
   readable.url = '/';
-
   return readable;
 }
 
 function parseFormData(req) {
   return new Promise((resolve, reject) => {
     const form = new IncomingForm({ uploadDir: '/tmp', keepExtensions: true });
-
     form.parse(req, (err, fields, files) => {
       if (err) return reject(err);
       resolve({ fields, files });
@@ -54,9 +51,7 @@ export const handler = async (event) => {
 
     const messages = [{
       role: 'user',
-      content: [
-        { type: 'text', text: userMessage }
-      ]
+      content: [{ type: 'text', text: userMessage }]
     }];
 
     if (file && file.filepath) {
@@ -82,22 +77,23 @@ export const handler = async (event) => {
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
     const lastMessage = messagesResponse.data[0];
 
-    // Estrai solo i blocchi 'text' e concatena in una stringa unica
-    const responseText = lastMessage.content
-      .filter(c => c.type === 'text')
-      .map(c => c.text)
-      .join("\n")
-      || '[Nessuna risposta]';
+    console.log("🟡 DEBUG: lastMessage =", JSON.stringify(lastMessage, null, 2));
+
+    const textReply = lastMessage.content
+      ?.filter(c => c.type === 'text')
+      ?.map(c => c.text)
+      ?.join('\n')
+      ?.trim();
 
     return {
       statusCode: 200,
       body: JSON.stringify({
         threadId: thread.id,
-        message: responseText,
+        message: textReply || '[Nessuna risposta generata]',
       }),
     };
   } catch (err) {
-    console.error('Error in handler:', err);
+    console.error('❌ Error in handler:', err);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: err.message }),
