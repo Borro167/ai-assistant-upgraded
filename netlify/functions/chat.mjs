@@ -41,7 +41,10 @@ export const handler = async (event) => {
     const req = buildReadableRequest(event);
     const { fields, files } = await parseFormData(req);
 
-    const userMessage = fields.message || '';
+    const userMessage = Array.isArray(fields.message)
+      ? fields.message[0]
+      : fields.message || '';
+
     const threadId = fields.threadId || null;
     const file = files.file;
 
