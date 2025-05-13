@@ -1,6 +1,4 @@
-import { parse } from 'formdata-node/parser';
-import { FormData } from 'formdata-node';
-import { fileFromPath } from 'formdata-node/file-from-path';
+import { parseMultipartForm } from '@netlify/functions';
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
@@ -16,12 +14,14 @@ export const handler = async (event) => {
   }
 
   try {
-    const formData = await parse(event);
+    // Parsing multipart form: message, threadId (facoltativo), file
+    const { files, fields } = await parseMultipartForm(event);
 
-    const userMessage = formData.get('message') || '';
-    const file = formData.get('file');
-    const threadId = formData.get('threadId') || null;
+    const userMessage = fields.message || '';
+    const threadId = fields.threadId || null;
+    const file = files.file;
 
+    // Crea un nuovo thread se non viene passato uno esistente
     const thread = threadId
       ? { id: threadId }
       : await openai.beta.threads.create();
@@ -33,27 +33,32 @@ export const handler = async (event) => {
       },
     ];
 
-    if (file && file.stream) {
+    // Se è presente un file (caricato dal form)
+    if (file && file.tmpPath) {
       const upload = await openai.files.create({
-        file: file.stream,
+        file: file.tmpPath,
         purpose: 'assistants',
       });
 
       messages[0].file_ids = [upload.id];
     }
 
+    // Invia il messaggio al thread
     await openai.beta.threads.messages.create(thread.id, messages[0]);
 
+    // Avvia il run dell’assistente
     const run = await openai.beta.threads.runs.create(thread.id, {
       assistant_id: process.env.OPENAI_ASSISTANT_ID,
     });
 
+    // Attende il completamento del run
     let runStatus;
     do {
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
       await new Promise((res) => setTimeout(res, 1000));
     } while (runStatus.status !== 'completed');
 
+    // Recupera la risposta finale
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
     const lastMessage = messagesResponse.data[0];
 

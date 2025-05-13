@@ -1,8 +1,7 @@
 {
-  "name": "ai-assistant-upgraded",
   "type": "module",
   "dependencies": {
     "openai": "^4.20.0",
-    "formdata-node": "^5.0.0"
+    "@netlify/functions": "^1.0.0"
   }
 }
