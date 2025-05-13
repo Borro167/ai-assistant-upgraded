@@ -7,12 +7,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Converte event.body in uno stream leggibile
 function buildReadableRequest(event) {
   const buffer = Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8');
   const readable = Readable.from([buffer]);
 
-  // aggiungi intestazioni e metodo simulati
   readable.headers = event.headers;
   readable.method = event.httpMethod;
   readable.url = '/';
@@ -51,7 +49,12 @@ export const handler = async (event) => {
       ? { id: threadId }
       : await openai.beta.threads.create();
 
-    const messages = [{ role: 'user', content: userMessage }];
+    const messages = [{
+      role: 'user',
+      content: [
+        { type: 'text', text: userMessage }
+      ]
+    }];
 
     if (file && file.filepath) {
       const upload = await openai.files.create({
