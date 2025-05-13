@@ -1,20 +1,36 @@
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
+import stream from 'stream';
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const parseForm = (event) =>
-  new Promise((resolve, reject) => {
+function eventToReq(event) {
+  const readable = new stream.Readable();
+  readable._read = () => {}; // required
+  readable.push(Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8'));
+  readable.push(null);
+
+  return {
+    headers: event.headers,
+    method: event.httpMethod,
+    url: '/',
+    ...readable,
+  };
+}
+
+function parseMultipartForm(req) {
+  return new Promise((resolve, reject) => {
     const form = new IncomingForm({ uploadDir: '/tmp', keepExtensions: true });
 
-    form.parse(event, (err, fields, files) => {
+    form.parse(req, (err, fields, files) => {
       if (err) return reject(err);
       resolve({ fields, files });
     });
   });
+}
 
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -25,18 +41,8 @@ export const handler = async (event) => {
   }
 
   try {
-    const buffer = Buffer.from(event.body, 'base64');
-    const fakeReq = {
-      headers: event.headers,
-      method: event.httpMethod,
-      url: '/',
-      on: (eventName, cb) => {
-        if (eventName === 'data') cb(buffer);
-        if (eventName === 'end') cb();
-      },
-    };
-
-    const { fields, files } = await parseForm(fakeReq);
+    const req = eventToReq(event);
+    const { fields, files } = await parseMultipartForm(req);
 
     const userMessage = fields.message || '';
     const threadId = fields.threadId || null;
@@ -53,7 +59,6 @@ export const handler = async (event) => {
         file: fs.createReadStream(file.filepath),
         purpose: 'assistants',
       });
-
       messages[0].file_ids = [upload.id];
     }
 
