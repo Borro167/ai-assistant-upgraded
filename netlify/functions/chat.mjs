@@ -1,9 +1,20 @@
-import { parseMultipartFormData } from '@netlify/functions';
+import { IncomingForm } from 'formidable';
+import fs from 'fs';
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+const parseForm = (event) =>
+  new Promise((resolve, reject) => {
+    const form = new IncomingForm({ uploadDir: '/tmp', keepExtensions: true });
+
+    form.parse(event, (err, fields, files) => {
+      if (err) return reject(err);
+      resolve({ fields, files });
+    });
+  });
 
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -14,9 +25,18 @@ export const handler = async (event) => {
   }
 
   try {
-    const form = await parseMultipartFormData(event);
-    const fields = Object.fromEntries(form.fields);
-    const files = Object.fromEntries(form.files);
+    const buffer = Buffer.from(event.body, 'base64');
+    const fakeReq = {
+      headers: event.headers,
+      method: event.httpMethod,
+      url: '/',
+      on: (eventName, cb) => {
+        if (eventName === 'data') cb(buffer);
+        if (eventName === 'end') cb();
+      },
+    };
+
+    const { fields, files } = await parseForm(fakeReq);
 
     const userMessage = fields.message || '';
     const threadId = fields.threadId || null;
@@ -26,16 +46,11 @@ export const handler = async (event) => {
       ? { id: threadId }
       : await openai.beta.threads.create();
 
-    const messages = [
-      {
-        role: 'user',
-        content: userMessage,
-      },
-    ];
+    const messages = [{ role: 'user', content: userMessage }];
 
-    if (file && file.tmpPath) {
+    if (file && file.filepath) {
       const upload = await openai.files.create({
-        file: file.tmpPath,
+        file: fs.createReadStream(file.filepath),
         purpose: 'assistants',
       });
 
