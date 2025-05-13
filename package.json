@@ -1,7 +1,9 @@
 {
+  "name": "ai-assistant-upgraded",
+  "version": "1.0.0",
   "type": "module",
   "dependencies": {
     "openai": "^4.20.0",
-    "@netlify/functions": "^1.0.0"
+    "formidable": "^3.5.0"
   }
 }
