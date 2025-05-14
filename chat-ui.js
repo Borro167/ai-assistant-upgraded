@@ -9,7 +9,7 @@ const fileStatus = document.getElementById("file-status");
 sendBtn.addEventListener("click", sendMessage);
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
-    e.preventDefault(); // fix doppio invio
+    e.preventDefault();
     sendMessage();
   }
 });
