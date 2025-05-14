@@ -2,32 +2,27 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Assistant Regressivo</title>
+  <title>Chat AI - Regressione</title>
   <style>
-    body { font-family: sans-serif; background: #f7f7f8; margin: 0; display: flex; flex-direction: column; height: 100vh; }
-    #chat { flex: 1; overflow-y: auto; padding: 20px; }
-    .message { max-width: 70%; margin-bottom: 10px; padding: 10px 15px; border-radius: 12px; }
-    .user { background: #007bff; color: white; margin-left: auto; text-align: right; }
-    .bot { background: #e4e6eb; color: black; margin-right: auto; text-align: left; }
-    #input-area { display: flex; padding: 15px; border-top: 1px solid #ccc; background: white; }
-    #message { flex: 1; padding: 10px; font-size: 1em; }
-    #sendBtn { padding: 10px 20px; margin-left: 10px; cursor: pointer; }
-    #drop-zone { border: 2px dashed #999; border-radius: 10px; padding: 20px; margin: 10px; text-align: center; color: #666; background: #fffdf9; }
-    #drop-zone.dragover { background-color: #e0ffe0; border-color: #4caf50; }
-    #file-status { margin-top: 10px; font-style: italic; color: #333; }
+    body { font-family: sans-serif; padding: 2rem; }
+    #chat { max-height: 400px; overflow-y: auto; margin-bottom: 1rem; border: 1px solid #ccc; padding: 1rem; }
+    .message { margin: 0.5rem 0; }
+    .user { text-align: right; color: blue; }
+    .bot { text-align: left; color: green; }
+    #drop-zone { border: 2px dashed #ccc; padding: 1rem; text-align: center; margin-bottom: 1rem; }
+    #drop-zone.dragover { border-color: #333; background: #f0f0f0; }
   </style>
 </head>
 <body>
+  <h1>Chat AI Regressiva</h1>
   <div id="chat"></div>
-  <div id="drop-zone">
-    Trascina qui un file PDF o CSV da analizzare
-    <div id="file-status">Nessun file caricato</div>
-  </div>
-  <div id="input-area">
-    <input type="text" id="message" placeholder="Scrivi un messaggio..." />
-    <button id="sendBtn" onclick="sendMessage()">Invia</button>
-  </div>
+
+  <div id="drop-zone">Trascina un file CSV o PDF qui</div>
+  <p id="file-status">Nessun file caricato</p>
+
+  <input type="text" id="message" placeholder="Scrivi un messaggio" />
+  <button id="sendBtn">Invia</button>
+
   <script src="chat-ui.js"></script>
 </body>
 </html>
