@@ -6,10 +6,8 @@ const sendBtn = document.getElementById("sendBtn");
 const dropZone = document.getElementById("drop-zone");
 const fileStatus = document.getElementById("file-status");
 
-// Avvia invio al click
 sendBtn.addEventListener("click", sendMessage);
 
-// Invio con Enter
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
@@ -17,7 +15,6 @@ input.addEventListener("keydown", (e) => {
   }
 });
 
-// Drag & drop file
 dropZone.addEventListener("dragover", (e) => {
   e.preventDefault();
   dropZone.classList.add("dragover");
@@ -63,4 +60,18 @@ async function sendMessage() {
 
     appendMessage("bot", reply);
   } catch (err) {
-    console
+    console.error("❌ Errore:", err);
+    appendMessage("bot", "[Errore di rete o risposta]");
+  }
+
+  input.value = "";
+  selectedFile = null;
+  fileStatus.textContent = "Nessun file caricato";
+}
+
+function appendMessage(role, text) {
+  const msg = document.createElement("div");
+  msg.className = `message ${role}`;
+  msg.textContent = text;
+  chat.appendChild(msg);
+  chat.scrollTop = chat.scrollHeight
