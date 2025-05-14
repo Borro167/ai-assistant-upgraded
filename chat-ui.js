@@ -6,22 +6,19 @@ const sendBtn = document.getElementById("sendBtn");
 const dropZone = document.getElementById("drop-zone");
 const fileStatus = document.getElementById("file-status");
 
-// Invio messaggio al click o Enter
 sendBtn.addEventListener("click", sendMessage);
 input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendMessage();
+  if (e.key === "Enter") {
+    e.preventDefault();
+    sendMessage();
+  }
 });
 
-// Drag and Drop file
 dropZone.addEventListener("dragover", (e) => {
   e.preventDefault();
   dropZone.classList.add("dragover");
 });
-
-dropZone.addEventListener("dragleave", () => {
-  dropZone.classList.remove("dragover");
-});
-
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
 dropZone.addEventListener("drop", (e) => {
   e.preventDefault();
   dropZone.classList.remove("dragover");
@@ -31,7 +28,6 @@ dropZone.addEventListener("drop", (e) => {
   }
 });
 
-// Funzione principale
 async function sendMessage() {
   const text = input.value.trim();
   if (!text && !selectedFile) return;
@@ -40,17 +36,14 @@ async function sendMessage() {
 
   const formData = new FormData();
   formData.append("message", text || "Analizza il file allegato");
-  if (selectedFile) {
-    formData.append("file", selectedFile);
-  }
+  if (selectedFile) formData.append("file", selectedFile);
 
   try {
     const res = await fetch("/.netlify/functions/chat", {
       method: "POST",
-      body: formData
+      body: formData,
     });
     const data = await res.json();
-
     const reply = data.message || "[Nessuna risposta]";
     appendMessage("bot", reply);
   } catch (err) {
@@ -63,7 +56,6 @@ async function sendMessage() {
   fileStatus.textContent = "Nessun file caricato";
 }
 
-// Aggiunge messaggio alla chat
 function appendMessage(role, text) {
   const div = document.createElement("div");
   div.className = `message ${role === "user" ? "user" : "bot"}`;

@@ -1,6 +1,6 @@
 flask
 pandas
 numpy
+matplotlib
 scikit-learn
-requests
 fpdf
