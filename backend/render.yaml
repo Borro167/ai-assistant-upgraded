@@ -1,9 +1,6 @@
 services:
   - type: web
-    name: regression-backend
-    runtime: python
+    name: assistant-regressivo-backend
+    env: python
     buildCommand: ""
     startCommand: "python app.py"
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.10
