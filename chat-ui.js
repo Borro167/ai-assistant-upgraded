@@ -1,72 +1,66 @@
-import { IncomingForm } from 'formidable';
-import fs from 'fs';
-import { Readable } from 'stream';
-import OpenAI from 'openai';
+let selectedFile = null;
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+const chat = document.getElementById("chat");
+const input = document.getElementById("message");
+const sendBtn = document.getElementById("sendBtn");
+const dropZone = document.getElementById("drop-zone");
+const fileStatus = document.getElementById("file-status");
+
+// Avvia invio al click
+sendBtn.addEventListener("click", sendMessage);
+
+// Invio con Enter
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    sendMessage();
+  }
 });
 
-function buildReadableRequest(event) {
-  const buffer = Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8');
-  const readable = Readable.from([buffer]);
-  readable.headers = event.headers;
-  readable.method = event.httpMethod;
-  readable.url = '/';
-  return readable;
-}
+// Drag & drop file
+dropZone.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  dropZone.classList.add("dragover");
+});
 
-function parseFormData(req) {
-  return new Promise((resolve, reject) => {
-    const form = new IncomingForm({ uploadDir: '/tmp', keepExtensions: true });
-    form.parse(req, (err, fields, files) => {
-      if (err) return reject(err);
-      resolve({ fields, files });
-    });
-  });
-}
+dropZone.addEventListener("dragleave", () => {
+  dropZone.classList.remove("dragover");
+});
 
-export const handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      body: 'Method not allowed',
-    };
+dropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropZone.classList.remove("dragover");
+  if (e.dataTransfer.files.length > 0) {
+    selectedFile = e.dataTransfer.files[0];
+    fileStatus.textContent = `File caricato: ${selectedFile.name}`;
+  }
+});
+
+async function sendMessage() {
+  const text = input.value.trim();
+  if (!text && !selectedFile) return;
+
+  appendMessage("user", text || `[File: ${selectedFile.name}]`);
+
+  const formData = new FormData();
+  formData.append("message", text || "Analizza il file caricato");
+  if (selectedFile) {
+    formData.append("file", selectedFile);
   }
 
   try {
-    const req = buildReadableRequest(event);
-    const { files } = await parseFormData(req);
+    const res = await fetch("/.netlify/functions/chat", {
+      method: "POST",
+      body: formData,
+    });
 
-    const file = files.file;
+    const data = await res.json();
+    let reply = "[Nessuna risposta]";
 
-    if (file && file.filepath) {
-      const upload = await openai.files.create({
-        file: fs.createReadStream(file.filepath),
-        purpose: 'assistants',
-      });
-
-      console.log("✅ File caricato su OpenAI:", upload.id, file.originalFilename);
-
-      return {
-        statusCode: 200,
-        body: JSON.stringify({
-          fileId: upload.id,
-          fileName: file.originalFilename,
-        }),
-      };
+    if (typeof data.message === "string") {
+      reply = data.message;
     }
 
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "Nessun file ricevuto" }),
-    };
-
+    appendMessage("bot", reply);
   } catch (err) {
-    console.error('❌ Errore durante l’upload del file:', err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
-    };
-  }
-};
+    console
