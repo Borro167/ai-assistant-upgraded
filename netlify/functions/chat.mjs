@@ -77,26 +77,3 @@ export const handler = async (event) => {
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
     const lastMessage = messagesResponse.data?.[0] || { content: [] };
 
-    console.log("🟡 DEBUG lastMessage =", JSON.stringify(lastMessage, null, 2));
-
-    const textReply = lastMessage.content
-      ?.filter(c => c.type === 'text')
-      ?.map(c => c.text?.value)
-      ?.join('\n')
-      ?.trim() || '[Nessuna risposta generata]';
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        threadId: thread.id,
-        message: textReply,
-      }),
-    };
-  } catch (err) {
-    console.error('❌ Error in handler:', err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
-    };
-  }
-};
