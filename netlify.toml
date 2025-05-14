@@ -1,7 +1,7 @@
-[functions]
-node_bundler = "esbuild"
-external_node_modules = ["openai", "formdata-node"]
-included_files = ["netlify/functions/**"]
 
-[functions."chat"]
-  path = "netlify/functions/chat.mjs"
+[build]
+  functions = "netlify/functions"
+  publish = "."
+
+[functions]
+  node_bundler = "esbuild"
