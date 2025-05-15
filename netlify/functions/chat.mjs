@@ -38,7 +38,6 @@ export const handler = async (event) => {
     const req = buildReadableRequest(event);
     const { fields, files } = await parseFormData(req);
 
-    // 🔍 DEBUG - Visualizza i campi del form
     console.log("🟢 DEBUG fields =", fields);
     console.log("🟢 DEBUG files =", files);
 
@@ -62,7 +61,9 @@ export const handler = async (event) => {
 
     const messages = [{
       role: 'user',
-      content: [{ type: 'text', text: userMessage }]
+      content: [
+        { type: 'text', text: userMessage }
+      ]
     }];
 
     if (file && file.filepath) {
@@ -70,7 +71,11 @@ export const handler = async (event) => {
         file: fs.createReadStream(file.filepath),
         purpose: 'assistants',
       });
-      messages[0].file_ids = [upload.id];
+
+      messages[0].content.push({
+        type: 'file',
+        file_id: upload.id
+      });
     }
 
     await openai.beta.threads.messages.create(thread.id, messages[0]);
