@@ -59,24 +59,24 @@ export const handler = async (event) => {
       ? { id: threadId }
       : await openai.beta.threads.create();
 
-    const messages = [{
-      role: 'user',
-      content: [
-        { type: 'text', text: userMessage }
-      ]
-    }];
+    let fileId = null;
 
     if (file && file.filepath) {
       const upload = await openai.files.create({
         file: fs.createReadStream(file.filepath),
         purpose: 'assistants',
       });
-
-      messages[0].file_ids = [upload.id]; // ✅ compatibile con Assistants API
+      fileId = upload.id;
     }
 
-    await openai.beta.threads.messages.create(thread.id, messages[0]);
+    // ✅ Invio del messaggio con o senza file_ids
+    await openai.beta.threads.messages.create(thread.id, {
+      role: 'user',
+      content: [{ type: 'text', text: userMessage }],
+      ...(fileId ? { file_ids: [fileId] } : {})
+    });
 
+    // ✅ Avvia il run
     const run = await openai.beta.threads.runs.create(thread.id, {
       assistant_id: process.env.OPENAI_ASSISTANT_ID,
     });
