@@ -11,6 +11,14 @@
   },
   "dependencies": {
     "formidable": "^3.5.0",
-    "openai": "^4.24.0"
+    "openai": "^4.24.0",
+    "dezalgo": "^1.0.3",
+    "once": "^1.4.0",
+    "@paralleldrive/cuid2": "^2.2.2",
+    "node-fetch": "^3.3.2",
+    "formdata-node": "^5.0.0",
+    "form-data-encoder": "^3.0.2",
+    "abort-controller": "^3.0.0",
+    "agentkeepalive": "^4.5.0"
   }
 }
