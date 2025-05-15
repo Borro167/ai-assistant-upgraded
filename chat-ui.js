@@ -45,12 +45,7 @@ async function sendMessage() {
     formData.append("file", selectedFile);
   }
 
-  // 🔍 DEBUG LOCALE
-  console.log("🟡 DEBUG - Messaggio:", text);
-  console.log("🟡 DEBUG - File selezionato:", selectedFile);
-  for (let [key, value] of formData.entries()) {
-    console.log(`📦 formData[${key}] =`, value);
-  }
+  appendMessage("bot", "🕐 Analisi in corso, attendi...");
 
   try {
     const res = await fetch("/.netlify/functions/chat", {
@@ -63,6 +58,12 @@ async function sendMessage() {
 
     if (typeof data.message === "string") {
       reply = data.message;
+    }
+
+    const botMsgs = chat.querySelectorAll(".message.bot");
+    const lastBot = botMsgs[botMsgs.length - 1];
+    if (lastBot && lastBot.textContent.includes("🕐")) {
+      lastBot.remove();
     }
 
     appendMessage("bot", reply);
