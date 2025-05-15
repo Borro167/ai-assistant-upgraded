@@ -74,4 +74,5 @@ function appendMessage(role, text) {
   msg.className = `message ${role}`;
   msg.textContent = text;
   chat.appendChild(msg);
-  chat.scrollTop = chat.scrollHeight
+  chat.scrollTop = chat.scrollHeight;
+}
