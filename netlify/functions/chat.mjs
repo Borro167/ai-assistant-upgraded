@@ -26,46 +26,49 @@ function parseFormData(req) {
 
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      body: 'Method not allowed',
-    };
+    return { statusCode: 405, body: 'Method not allowed' };
   }
 
   try {
     const req = buildReadableRequest(event);
     const { fields, files } = await parseFormData(req);
 
-    const userMessage = Array.isArray(fields.message) ? fields.message[0] : fields.message || '';
+    const userMessage = Array.isArray(fields.message)
+      ? fields.message[0]
+      : fields.message || '';
+
+    const threadId = fields.threadId || null;
     const file = Array.isArray(files.file) ? files.file[0] : files.file;
 
-    // ✅ Carica il file nel vector store se presente
+    const thread = threadId ? { id: threadId } : await openai.beta.threads.create();
+
+    let fileId = null;
     if (file && file.filepath) {
       const upload = await openai.files.create({
         file: fs.createReadStream(file.filepath),
-        purpose: "assistants"
+        purpose: 'assistants'
       });
+      fileId = upload.id;
 
-      console.log("📂 File caricato:", upload.id);
-      console.log("🔄 Attendi che venga indicizzato nel vector store...");
-
-      // Carica nel vector store esistente (ID fisso configurato in assistant stesso)
-      await openai.beta.vectorStores.fileBatches.uploadAndPoll(
-        process.env.OPENAI_VECTOR_STORE_ID,
-        { files: [upload.id] }
-      );
-
-      console.log("✅ File indicizzato.");
+      // Tentativo di indicizzazione nel vector store se supportato
+      if (openai.beta?.vectorStores?.fileBatches?.uploadAndPoll && process.env.OPENAI_VECTOR_STORE_ID) {
+        await openai.beta.vectorStores.fileBatches.uploadAndPoll(
+          process.env.OPENAI_VECTOR_STORE_ID,
+          { files: [fileId] }
+        );
+      }
     }
 
-    // ✅ Crea thread
-    const thread = await openai.beta.threads.create();
-
-    // ✅ Invia messaggio testuale (il file è nel vector store!)
-    await openai.beta.threads.messages.create(thread.id, {
+    const messagePayload = {
       role: 'user',
-      content: userMessage,
-    });
+      content: [{ type: 'text', text: userMessage }],
+    };
+
+    if (fileId) {
+      messagePayload.file_ids = [fileId];
+    }
+
+    await openai.beta.threads.messages.create(thread.id, messagePayload);
 
     const run = await openai.beta.threads.runs.create(thread.id, {
       assistant_id: process.env.OPENAI_ASSISTANT_ID,
@@ -74,21 +77,30 @@ export const handler = async (event) => {
     let runStatus;
     do {
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise((res) => setTimeout(res, 1000));
     } while (runStatus.status !== 'completed');
 
-    const response = await openai.beta.threads.messages.list(thread.id);
-    const reply = response.data?.[0]?.content?.[0]?.text?.value || '[Nessuna risposta]';
+    const messagesResponse = await openai.beta.threads.messages.list(thread.id);
+    const lastMessage = messagesResponse.data?.[0] || { content: [] };
+
+    const textReply = lastMessage.content
+      ?.filter(c => c.type === 'text')
+      ?.map(c => c.text?.value)
+      ?.join('\n')
+      ?.trim() || '[Nessuna risposta generata]';
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: reply }),
+      body: JSON.stringify({
+        threadId: thread.id,
+        message: textReply
+      })
     };
   } catch (err) {
-    console.error("❌ Error in handler:", err);
+    console.error('❌ Error in handler:', err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
+      body: JSON.stringify({ error: err.message })
     };
   }
 };
