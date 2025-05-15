@@ -6,7 +6,8 @@
   "main": "netlify/functions/chat.mjs",
   "scripts": {
     "start": "echo 'Usa Netlify per avviare le funzioni serverless'",
-    "lint": "echo 'TODO: aggiungi ESLint se vuoi'"
+    "lint": "echo 'TODO: aggiungi ESLint se vuoi'",
+    "build": "echo 'Build virtuale per Netlify'"
   },
   "dependencies": {
     "formidable": "^3.5.0",
