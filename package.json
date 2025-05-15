@@ -19,6 +19,11 @@
     "formdata-node": "^5.0.0",
     "form-data-encoder": "^2.0.2",
     "abort-controller": "^3.0.0",
-    "agentkeepalive": "^4.5.0"
+    "agentkeepalive": "^4.5.0",
+    "wrappy": "^1.0.2",
+    "asap": "^2.0.6",
+    "event-target-shim": "^5.0.1",
+    "humanize-ms": "^1.2.1",
+    "@noble/hashes": "^1.3.0"
   }
 }
