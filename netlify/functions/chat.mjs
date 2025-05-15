@@ -45,4 +45,4 @@ export const handler = async (event) => {
       ? fields.message[0]
       : fields.message || '';
 
-   
+    const thread
