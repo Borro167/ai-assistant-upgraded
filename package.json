@@ -1,8 +1,15 @@
-
 {
+  "name": "ai-assistant-regressivo",
+  "version": "1.0.0",
+  "description": "Assistant AI con regressione e analisi file",
   "type": "module",
+  "main": "netlify/functions/chat.mjs",
+  "scripts": {
+    "start": "echo 'Usa Netlify per avviare le funzioni serverless'",
+    "lint": "echo 'TODO: aggiungi ESLint se vuoi'"
+  },
   "dependencies": {
-    "openai": "^4.20.0",
-    "formidable": "^3.5.0"
+    "formidable": "^3.5.0",
+    "openai": "^4.24.0"
   }
 }
