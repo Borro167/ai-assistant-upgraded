@@ -45,6 +45,13 @@ async function sendMessage() {
     formData.append("file", selectedFile);
   }
 
+  // 🔍 DEBUG LOCALE
+  console.log("🟡 DEBUG - Messaggio:", text);
+  console.log("🟡 DEBUG - File selezionato:", selectedFile);
+  for (let [key, value] of formData.entries()) {
+    console.log(`📦 formData[${key}] =`, value);
+  }
+
   try {
     const res = await fetch("/.netlify/functions/chat", {
       method: "POST",
