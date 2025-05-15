@@ -38,7 +38,7 @@ export const handler = async (event) => {
     const req = buildReadableRequest(event);
     const { fields, files } = await parseFormData(req);
 
-    // 🔍 DEBUG - stampa tutto quello che arriva dal form
+    // 🔍 DEBUG - Visualizza i campi del form
     console.log("🟢 DEBUG fields =", fields);
     console.log("🟢 DEBUG files =", files);
 
@@ -47,7 +47,7 @@ export const handler = async (event) => {
       : fields.message || '';
 
     const threadId = fields.threadId || null;
-    const file = files.file;
+    const file = Array.isArray(files.file) ? files.file[0] : files.file;
 
     if (file) {
       console.log("📂 file.filepath =", file.filepath);
