@@ -38,12 +38,23 @@ export const handler = async (event) => {
     const req = buildReadableRequest(event);
     const { fields, files } = await parseFormData(req);
 
+    // 🔍 DEBUG - stampa tutto quello che arriva dal form
+    console.log("🟢 DEBUG fields =", fields);
+    console.log("🟢 DEBUG files =", files);
+
     const userMessage = Array.isArray(fields.message)
       ? fields.message[0]
       : fields.message || '';
 
     const threadId = fields.threadId || null;
     const file = files.file;
+
+    if (file) {
+      console.log("📂 file.filepath =", file.filepath);
+      console.log("📂 file.originalFilename =", file.originalFilename);
+    } else {
+      console.log("⚠️ Nessun file ricevuto nel campo 'file'");
+    }
 
     const thread = threadId
       ? { id: threadId }
