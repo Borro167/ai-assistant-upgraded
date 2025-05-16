@@ -3,10 +3,8 @@ import fs from 'fs';
 import { Readable } from 'stream';
 import OpenAI from 'openai';
 
-// Inizializza OpenAI client (API KEY da Netlify env)
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Adatta evento Netlify a request stream (per formidable)
 function buildReadableRequest(event) {
   const buffer = Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8');
   const readable = Readable.from([buffer]);
@@ -16,7 +14,6 @@ function buildReadableRequest(event) {
   return readable;
 }
 
-// Parsing form-data (messaggio + file) con formidable
 function parseFormData(req) {
   return new Promise((resolve, reject) => {
     const form = new IncomingForm({ uploadDir: '/tmp', keepExtensions: true });
@@ -33,46 +30,49 @@ export const handler = async (event) => {
   }
 
   try {
-    // 1. Parsing dati da frontend
+    console.log('--- STEP 1: Ricevuta richiesta dal frontend');
     const req = buildReadableRequest(event);
     const { fields, files } = await parseFormData(req);
+    console.log('--- STEP 2: Parsed fields:', fields);
+    console.log('--- STEP 3: Parsed files:', files);
 
-    // 2. Estrai messaggio utente e file
     const userMessageRaw = Array.isArray(fields.message)
       ? fields.message[0]
       : fields.message;
-
-    // 3. Carica file se presente
     const file = Array.isArray(files.file) ? files.file[0] : files.file;
+
     let fileId = null;
     if (file && file.filepath) {
+      console.log('--- STEP 4: Upload file verso OpenAI...');
       const upload = await openai.files.create({
         file: fs.createReadStream(file.filepath),
         purpose: 'assistants'
       });
       fileId = upload.id;
+      console.log('--- STEP 4b: File caricato su OpenAI con id:', fileId);
 
-      // (Opzionale) Indicizza file in vector store se serve
+      // (Opzionale) Indicizza file su vector store
       if (
         openai.beta?.vectorStores?.fileBatches?.uploadAndPoll &&
         process.env.OPENAI_VECTOR_STORE_ID
       ) {
+        console.log('--- STEP 4c: Indicizzazione vector store...');
         await openai.beta.vectorStores.fileBatches.uploadAndPoll(
           process.env.OPENAI_VECTOR_STORE_ID,
           { files: [fileId] }
         );
+        console.log('--- STEP 4d: Indicizzazione vector store completata.');
       }
     }
 
-    // 4. Genera messaggio sicuro (mai vuoto)
     const safeMessage = (typeof userMessageRaw === "string" && userMessageRaw.trim())
       ? userMessageRaw.trim()
       : (fileId ? "Ecco il file allegato." : "Messaggio vuoto.");
 
     const threadId = fields.threadId || null;
     const thread = threadId ? { id: threadId } : await openai.beta.threads.create();
+    console.log('--- STEP 5: Thread creato/recuperato:', thread.id);
 
-    // 5. Costruisci payload: content sempre [{type:"text", text:...}]
     const messagePayload = {
       role: 'user',
       content: [
@@ -93,19 +93,22 @@ export const handler = async (event) => {
         ]
       })
     };
+    console.log('--- STEP 6: Payload preparato:', messagePayload);
 
-    // 6. Invia messaggio all'assistant
     await openai.beta.threads.messages.create(thread.id, messagePayload);
+    console.log('--- STEP 7: Messaggio inviato a OpenAI.');
 
-    // 7. Avvia run assistant
     const run = await openai.beta.threads.runs.create(thread.id, {
       assistant_id: process.env.OPENAI_ASSISTANT_ID,
     });
+    console.log('--- STEP 8: Run assistant creato:', run.id);
 
-    // 8. Polling finché non è completato
+    // Polling finché non è completato
     let runStatus;
+    let tentativi = 0;
     do {
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+      console.log(`--- STEP 9: Polling run status: ${runStatus.status} (tentativo ${++tentativi})`);
       await new Promise((res) => setTimeout(res, 1000));
     } while (
       runStatus.status !== 'completed' &&
@@ -114,19 +117,19 @@ export const handler = async (event) => {
     );
 
     if (runStatus.status !== 'completed') {
+      console.error('--- STEP 10: Run assistant NON completato:', runStatus.status);
       return {
         statusCode: 500,
         body: JSON.stringify({ error: `Assistant run failed: ${runStatus.status}` })
       };
     }
 
-    // 9. Recupera risposta assistant (estrattore robusto)
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
-    console.log('MESSAGES RESPONSE:', JSON.stringify(messagesResponse.data, null, 2)); // DEBUG
+    console.log('--- STEP 11: MESSAGES RESPONSE:', JSON.stringify(messagesResponse.data, null, 2));
 
+    // Trova sempre il PRIMO messaggio assistant con testo valido
     let textReply = '[Nessuna risposta generata]';
     if (Array.isArray(messagesResponse.data)) {
-      // Trova tutti i messaggi di ruolo assistant
       const assistants = messagesResponse.data.filter(m => m.role === "assistant");
       for (const msg of assistants) {
         if (Array.isArray(msg.content)) {
@@ -144,7 +147,8 @@ export const handler = async (event) => {
       }
     }
 
-    // 10. Risposta al frontend
+    console.log('--- STEP 12: textReply finale:', textReply);
+
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -153,10 +157,9 @@ export const handler = async (event) => {
       })
     };
   } catch (err) {
-    // Logging errori dettagliati
-    console.error('❌ Error in handler:', err);
+    console.error('❌ ERROR HANDLER:', err);
     if (err.response && err.response.data) {
-      console.error('OpenAI API response:', err.response.data);
+      console.error('❌ OpenAI API response:', err.response.data);
     }
     return {
       statusCode: 500,
