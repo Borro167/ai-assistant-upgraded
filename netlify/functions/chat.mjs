@@ -3,10 +3,10 @@ import fs from 'fs';
 import { Readable } from 'stream';
 import OpenAI from 'openai';
 
-// Inizializza il client OpenAI con la chiave API dalla variabile ambiente
+// Inizializza OpenAI client (API KEY da variabile ambiente Netlify)
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Funzione per costruire una richiesta "finta" da un evento Netlify (Lambda)
+// Funzione per adattare l'evento Netlify a una request stream (necessario per formidable)
 function buildReadableRequest(event) {
   const buffer = Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8');
   const readable = Readable.from([buffer]);
@@ -16,7 +16,7 @@ function buildReadableRequest(event) {
   return readable;
 }
 
-// Parsing del form-data (testo + file) con formidable
+// Parsing del form-data (messaggio + file) con formidable
 function parseFormData(req) {
   return new Promise((resolve, reject) => {
     const form = new IncomingForm({ uploadDir: '/tmp', keepExtensions: true });
@@ -27,28 +27,27 @@ function parseFormData(req) {
   });
 }
 
-// Handler principale Netlify Function
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' };
   }
 
   try {
-    // --- 1. Parsing dati dalla richiesta ---
+    // 1. Parsing dati ricevuti dal frontend
     const req = buildReadableRequest(event);
     const { fields, files } = await parseFormData(req);
 
-    // --- 2. Estrai messaggio utente e file (se presenti) ---
+    // 2. Estrai messaggio utente e file
     const userMessage = Array.isArray(fields.message)
       ? fields.message[0]
       : fields.message || '';
     const threadId = fields.threadId || null;
     const file = Array.isArray(files.file) ? files.file[0] : files.file;
 
-    // --- 3. Crea o recupera il thread ---
+    // 3. Crea thread se necessario
     const thread = threadId ? { id: threadId } : await openai.beta.threads.create();
 
-    // --- 4. Se c'è file: upload su OpenAI e ottieni file_id ---
+    // 4. Se presente, carica file su OpenAI e ottieni fileId
     let fileId = null;
     if (file && file.filepath) {
       const upload = await openai.files.create({
@@ -57,7 +56,7 @@ export const handler = async (event) => {
       });
       fileId = upload.id;
 
-      // (Facoltativo) Indicizza file in vector store
+      // (Opzionale) Indicizza file su vector store se usi questa funzione
       if (
         openai.beta?.vectorStores?.fileBatches?.uploadAndPoll &&
         process.env.OPENAI_VECTOR_STORE_ID
@@ -69,10 +68,15 @@ export const handler = async (event) => {
       }
     }
 
-    // --- 5. Costruisci il payload del messaggio (attachments + tools se serve) ---
+    // 5. Prepara il payload, ATTENZIONE: content DEVE essere [{type:"text", text:...}]
     const messagePayload = {
       role: 'user',
-      content: [{ type: 'text', text: userMessage }],
+      content: [
+        {
+          type: "text",
+          text: userMessage // Deve essere text, NON value
+        }
+      ],
       ...(fileId && {
         attachments: [
           {
@@ -86,20 +90,24 @@ export const handler = async (event) => {
       })
     };
 
-    // --- 6. Invia il messaggio all'assistant ---
+    // 6. Invia il messaggio all'assistant
     await openai.beta.threads.messages.create(thread.id, messagePayload);
 
-    // --- 7. Avvia la run dell'assistant ---
+    // 7. Avvia il run dell'assistant
     const run = await openai.beta.threads.runs.create(thread.id, {
       assistant_id: process.env.OPENAI_ASSISTANT_ID,
     });
 
-    // --- 8. Attendi la risposta dell'assistant (polling ogni 1s) ---
+    // 8. Attendi il completamento del run (polling ogni 1s)
     let runStatus;
     do {
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
       await new Promise((res) => setTimeout(res, 1000));
-    } while (runStatus.status !== 'completed' && runStatus.status !== 'failed' && runStatus.status !== 'cancelled');
+    } while (
+      runStatus.status !== 'completed' &&
+      runStatus.status !== 'failed' &&
+      runStatus.status !== 'cancelled'
+    );
 
     if (runStatus.status !== 'completed') {
       return {
@@ -108,9 +116,8 @@ export const handler = async (event) => {
       };
     }
 
-    // --- 9. Prendi la risposta dell'assistant dal thread ---
+    // 9. Estrai la risposta assistant
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
-    // Trova il primo messaggio role: assistant (quello valido)
     const lastAssistantMsg = messagesResponse.data.find(m => m.role === "assistant") || messagesResponse.data[0] || { content: [] };
 
     const textReply = lastAssistantMsg.content
@@ -119,6 +126,7 @@ export const handler = async (event) => {
       ?.join('\n')
       ?.trim() || '[Nessuna risposta generata]';
 
+    // 10. Risposta al frontend
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -127,7 +135,7 @@ export const handler = async (event) => {
       })
     };
   } catch (err) {
-    // --- 10. Logging avanzato degli errori ---
+    // Logging dettagliato errori
     console.error('❌ Error in handler:', err);
     if (err.response && err.response.data) {
       console.error('OpenAI API response:', err.response.data);
