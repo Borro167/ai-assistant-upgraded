@@ -11,7 +11,6 @@ app = Flask(__name__)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 def download_openai_file(file_id):
-    """Scarica un file caricato su OpenAI dato un file_id"""
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
     url = f"https://api.openai.com/v1/files/{file_id}/content"
     res = requests.get(url, headers=headers)
