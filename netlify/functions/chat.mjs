@@ -50,8 +50,11 @@ export const handler = async (event) => {
       });
       fileId = upload.id;
 
-      // Tentativo di indicizzazione nel vector store se supportato
-      if (openai.beta?.vectorStores?.fileBatches?.uploadAndPoll && process.env.OPENAI_VECTOR_STORE_ID) {
+      // Indicizzazione vector store opzionale
+      if (
+        openai.beta?.vectorStores?.fileBatches?.uploadAndPoll &&
+        process.env.OPENAI_VECTOR_STORE_ID
+      ) {
         await openai.beta.vectorStores.fileBatches.uploadAndPoll(
           process.env.OPENAI_VECTOR_STORE_ID,
           { files: [fileId] }
@@ -59,14 +62,12 @@ export const handler = async (event) => {
       }
     }
 
+    // *** CAMBIA QUI: attachments al posto di file_ids ***
     const messagePayload = {
       role: 'user',
       content: [{ type: 'text', text: userMessage }],
+      ...(fileId && { attachments: [{ file_id: fileId }] })
     };
-
-    if (fileId) {
-      messagePayload.file_ids = [fileId];
-    }
 
     await openai.beta.threads.messages.create(thread.id, messagePayload);
 
