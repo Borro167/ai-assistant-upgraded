@@ -2,7 +2,7 @@ import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import { Readable } from 'stream';
 import OpenAI from 'openai';
-import fetch from 'node-fetch'; // aggiungi a package.json se non c'è
+import fetch from 'node-fetch'; // assicurati sia tra le dipendenze
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -37,12 +37,16 @@ export const handler = async (event) => {
     console.log('--- STEP 2: Parsed fields:', fields);
     console.log('--- STEP 3: Parsed files:', files);
 
+    // Recupera testo dal campo message
     const userMessageRaw = Array.isArray(fields.message)
       ? fields.message[0]
       : fields.message;
-    const file = Array.isArray(files.file) ? files.file[0] : files.file;
 
+    // Recupera file dal campo file (opzionale)
+    const file = Array.isArray(files.file) ? files.file[0] : files.file;
     let fileId = null;
+
+    // Se c'è un file, caricalo su OpenAI e ottieni file_id
     if (file && file.filepath) {
       console.log('--- STEP 4: Upload file verso OpenAI...');
       const upload = await openai.files.create({
@@ -57,11 +61,16 @@ export const handler = async (event) => {
     const thread = threadId ? { id: threadId } : await openai.beta.threads.create();
     console.log('--- STEP 5: Thread creato/recuperato:', thread.id);
 
-    // Il file_id si passa nel testo, non come attachment
-    let safeMessage;
-    if (fileId) {
-      safeMessage = `Esegui una regressione sul file con file_id: ${fileId}`;
+    // Prepara il messaggio unendo testo utente + riferimento file
+    let safeMessage = "";
+    if (typeof userMessageRaw === "string" && userMessageRaw.trim() && fileId) {
+      // Testo utente + file_id nel prompt
+      safeMessage = `${userMessageRaw.trim()}\n[file_id: ${fileId}]`;
+    } else if (fileId) {
+      // Solo file
+      safeMessage = `Esegui una regressione sul file_id: ${fileId}`;
     } else if (typeof userMessageRaw === "string" && userMessageRaw.trim()) {
+      // Solo testo
       safeMessage = userMessageRaw.trim();
     } else {
       safeMessage = "Messaggio vuoto.";
@@ -86,7 +95,7 @@ export const handler = async (event) => {
     });
     console.log('--- STEP 8: Run assistant creato:', run.id);
 
-    // ----------- POLLING + TOOL-CALL HANDLING -----------
+    // ----------- CICLO POLLING + TOOL-CALL -----------
     let runStatus = run;
     let tentativi = 0;
     let maxTentativi = 30;
@@ -105,9 +114,6 @@ export const handler = async (event) => {
         const toolCalls = runStatus.required_action?.submit_tool_outputs?.tool_calls || [];
         for (const call of toolCalls) {
           const { tool_call_id, function: { name, arguments: argsRaw } } = call;
-          // DEBUG LOG
-          console.log('tool_call_id:', tool_call_id, 'function name:', name, 'argsRaw:', argsRaw);
-
           let args;
           try {
             args = JSON.parse(argsRaw);
@@ -130,14 +136,14 @@ export const handler = async (event) => {
             backendResult = { errore: err.message };
           }
 
-          // Invio risposta a OpenAI con tool_call_id OBBLIGATORIO
+          // Invio la risposta alla tool-call
           await openai.beta.threads.runs.submitToolOutputs(
             thread.id,
             run.id,
             {
               tool_outputs: [
                 {
-                  tool_call_id, // <- DEVE esserci!
+                  tool_call_id,
                   output: JSON.stringify(backendResult)
                 }
               ]
