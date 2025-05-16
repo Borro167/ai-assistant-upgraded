@@ -2,9 +2,7 @@ import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import { Readable } from 'stream';
 import OpenAI from 'openai';
-
-// Se usi node-fetch per chiamare il backend Render:
-import fetch from 'node-fetch'; // Assicurati sia tra le dipendenze in package.json
+import fetch from 'node-fetch'; // assicurati sia tra le dipendenze
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -55,15 +53,22 @@ export const handler = async (event) => {
       console.log('--- STEP 4b: File caricato su OpenAI con id:', fileId);
     }
 
-    const safeMessage = (typeof userMessageRaw === "string" && userMessageRaw.trim())
-      ? userMessageRaw.trim()
-      : (fileId ? "Ecco il file allegato." : "Messaggio vuoto.");
-
     const threadId = fields.threadId || null;
     const thread = threadId ? { id: threadId } : await openai.beta.threads.create();
     console.log('--- STEP 5: Thread creato/recuperato:', thread.id);
 
-    // PREPARA ATTACHMENTS SOLO SE C'È UN FILE
+    // Il messaggio utente può essere il testo o "Esegui la regressione sul file"
+    // Il file_id va passato ESPRESSAMENTE come input nella richiesta (NON attachments!)
+    let safeMessage;
+    if (fileId) {
+      // Messaggio standard per la regressione
+      safeMessage = `Esegui una regressione sul file con file_id: ${fileId}`;
+    } else if (typeof userMessageRaw === "string" && userMessageRaw.trim()) {
+      safeMessage = userMessageRaw.trim();
+    } else {
+      safeMessage = "Messaggio vuoto.";
+    }
+
     const messagePayload = {
       role: 'user',
       content: [
@@ -71,15 +76,7 @@ export const handler = async (event) => {
           type: "text",
           text: safeMessage
         }
-      ],
-      ...(fileId && {
-        attachments: [
-          {
-            file_id: fileId,
-            tools: [{ type: "analizza_file_regressione" }] // Usa qui il nome del TUO tool su Platform
-          }
-        ]
-      })
+      ]
     };
     console.log('--- STEP 6: Payload preparato:', messagePayload);
 
@@ -106,7 +103,7 @@ export const handler = async (event) => {
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
       console.log(`--- STEP 9: Polling run status: ${runStatus.status} (tentativo ${tentativi})`);
 
-      // GESTIONE requires_action
+      // GESTIONE requires_action per tool custom
       if (runStatus.status === 'requires_action') {
         const toolCalls = runStatus.required_action?.submit_tool_outputs?.tool_calls || [];
         for (const call of toolCalls) {
@@ -115,12 +112,12 @@ export const handler = async (event) => {
           try {
             args = JSON.parse(argsRaw);
           } catch {
-            args = argsRaw; // fallback se già oggetto
+            args = argsRaw; // fallback
           }
           console.log(`--- STEP 10: Tool richiesto: ${name} con args:`, args);
 
-          // CHIAMA IL BACKEND PYTHON SU RENDER
-          const backendUrl = `${process.env.RENDER_BACKEND_URL}/analizza_file_regressione`;
+          // Chiama il backend Python su Render
+          const backendUrl = `${process.env.RENDER_BACKEND_URL}/${name}`;
           let backendResult = {};
           try {
             const backendResp = await fetch(backendUrl, {
@@ -134,7 +131,7 @@ export const handler = async (event) => {
             backendResult = { errore: err.message };
           }
 
-          // INVIA RISPOSTA DEL BACKEND AL TOOL-CALL
+          // Invia risposta della tool-call a OpenAI
           await openai.beta.threads.runs.submitToolOutputs(
             thread.id,
             run.id,
