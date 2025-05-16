@@ -2,7 +2,7 @@ import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import { Readable } from 'stream';
 import OpenAI from 'openai';
-import fetch from 'node-fetch'; // assicurati sia tra le dipendenze
+import fetch from 'node-fetch'; // aggiungi a package.json se non c'è
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -57,11 +57,9 @@ export const handler = async (event) => {
     const thread = threadId ? { id: threadId } : await openai.beta.threads.create();
     console.log('--- STEP 5: Thread creato/recuperato:', thread.id);
 
-    // Il messaggio utente può essere il testo o "Esegui la regressione sul file"
-    // Il file_id va passato ESPRESSAMENTE come input nella richiesta (NON attachments!)
+    // Il file_id si passa nel testo, non come attachment
     let safeMessage;
     if (fileId) {
-      // Messaggio standard per la regressione
       safeMessage = `Esegui una regressione sul file con file_id: ${fileId}`;
     } else if (typeof userMessageRaw === "string" && userMessageRaw.trim()) {
       safeMessage = userMessageRaw.trim();
@@ -88,7 +86,7 @@ export const handler = async (event) => {
     });
     console.log('--- STEP 8: Run assistant creato:', run.id);
 
-    // ----------- CICLO DI POLLING E GESTIONE requires_action -----------
+    // ----------- POLLING + TOOL-CALL HANDLING -----------
     let runStatus = run;
     let tentativi = 0;
     let maxTentativi = 30;
@@ -103,18 +101,19 @@ export const handler = async (event) => {
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
       console.log(`--- STEP 9: Polling run status: ${runStatus.status} (tentativo ${tentativi})`);
 
-      // GESTIONE requires_action per tool custom
       if (runStatus.status === 'requires_action') {
         const toolCalls = runStatus.required_action?.submit_tool_outputs?.tool_calls || [];
         for (const call of toolCalls) {
           const { tool_call_id, function: { name, arguments: argsRaw } } = call;
+          // DEBUG LOG
+          console.log('tool_call_id:', tool_call_id, 'function name:', name, 'argsRaw:', argsRaw);
+
           let args;
           try {
             args = JSON.parse(argsRaw);
           } catch {
-            args = argsRaw; // fallback
+            args = argsRaw;
           }
-          console.log(`--- STEP 10: Tool richiesto: ${name} con args:`, args);
 
           // Chiama il backend Python su Render
           const backendUrl = `${process.env.RENDER_BACKEND_URL}/${name}`;
@@ -131,20 +130,20 @@ export const handler = async (event) => {
             backendResult = { errore: err.message };
           }
 
-          // Invia risposta della tool-call a OpenAI
+          // Invio risposta a OpenAI con tool_call_id OBBLIGATORIO
           await openai.beta.threads.runs.submitToolOutputs(
             thread.id,
             run.id,
             {
               tool_outputs: [
                 {
-                  tool_call_id,
+                  tool_call_id, // <- DEVE esserci!
                   output: JSON.stringify(backendResult)
                 }
               ]
             }
           );
-          console.log('--- STEP 11: Tool output inviato a OpenAI');
+          console.log('--- STEP: Tool output inviato a OpenAI con tool_call_id:', tool_call_id);
         }
       }
     }
