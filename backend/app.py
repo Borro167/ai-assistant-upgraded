@@ -4,11 +4,20 @@ import numpy as np
 import requests
 from io import BytesIO
 from fpdf import FPDF
+import os
 
 app = Flask(__name__)
 
-def download_file(url):
-    res = requests.get(url)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+def download_openai_file(file_id):
+    """Scarica un file caricato su OpenAI dato un file_id"""
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+    url = f"https://api.openai.com/v1/files/{file_id}/content"
+    res = requests.get(url, headers=headers)
+    if res.status_code != 200:
+        print("Errore recupero file OpenAI:", res.text)
+        raise Exception("Errore nel recupero file OpenAI")
     return BytesIO(res.content)
 
 def best_fit_model(x, y):
@@ -53,16 +62,27 @@ def generate_pdf(model, coeffs, r2, intercept):
     pdf.output(output)
     return output
 
-@app.route("/analizza", methods=["POST"])
-def analizza():
+@app.route("/analizza_file_regressione", methods=["POST"])
+def analizza_file_regressione():
     data = request.get_json()
-    file_url = data["file_url"]
-    file_stream = download_file(file_url)
+    file_id = data.get("file_id")
 
-    if file_url.endswith(".csv"):
+    if not file_id:
+        return jsonify({"errore": "Manca il parametro file_id!"}), 400
+
+    print("[Render] Ricevuto file_id:", file_id)
+
+    # Scarica il file da OpenAI
+    try:
+        file_stream = download_openai_file(file_id)
+    except Exception as e:
+        return jsonify({"errore": "Impossibile scaricare file da OpenAI.", "dettaglio": str(e)}), 400
+
+    # Prova a leggere CSV dal file
+    try:
         df = pd.read_csv(file_stream)
-    else:
-        return jsonify({"errore": "Supporto solo per CSV al momento."}), 400
+    except Exception as e:
+        return jsonify({"errore": "Errore nel parsing CSV", "dettaglio": str(e)}), 400
 
     if df.shape[1] < 2:
         return jsonify({"errore": "Il file deve avere almeno 2 colonne."}), 400
@@ -73,6 +93,8 @@ def analizza():
     model, r2, coeffs, intercept = best_fit_model(x, y)
     path = generate_pdf(model, coeffs, r2, intercept)
 
+    # Potresti aggiungere qui la logica per inviare il PDF come link o base64
+
     return jsonify({
         "model": model,
         "coeffs": coeffs,
@@ -81,6 +103,7 @@ def analizza():
         "pdf_path": path
     })
 
+# Route per stima invariata...
 @app.route("/stima", methods=["POST"])
 def stima():
     data = request.get_json()
@@ -101,6 +124,5 @@ def stima():
     return jsonify({"x": x, "y": y})
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
