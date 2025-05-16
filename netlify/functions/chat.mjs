@@ -50,7 +50,7 @@ export const handler = async (event) => {
       });
       fileId = upload.id;
 
-      // Indicizzazione vector store opzionale
+      // Opzionale: indicizza file in un vector store se il tuo assistant lo usa
       if (
         openai.beta?.vectorStores?.fileBatches?.uploadAndPoll &&
         process.env.OPENAI_VECTOR_STORE_ID
@@ -62,11 +62,22 @@ export const handler = async (event) => {
       }
     }
 
-    // *** CAMBIA QUI: attachments al posto di file_ids ***
+    // --- Costruisci il payload con attachments e tools ---
     const messagePayload = {
       role: 'user',
       content: [{ type: 'text', text: userMessage }],
-      ...(fileId && { attachments: [{ file_id: fileId }] })
+      ...(fileId && {
+        attachments: [
+          {
+            file_id: fileId,
+            // Specifica TUTTI i tool che vuoi che possano accedere al file
+            tools: [
+              { type: "code_interpreter" },
+              { type: "file_search" }
+            ]
+          }
+        ]
+      })
     };
 
     await openai.beta.threads.messages.create(thread.id, messagePayload);
@@ -79,12 +90,20 @@ export const handler = async (event) => {
     do {
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
       await new Promise((res) => setTimeout(res, 1000));
-    } while (runStatus.status !== 'completed');
+    } while (runStatus.status !== 'completed' && runStatus.status !== 'failed' && runStatus.status !== 'cancelled');
+
+    if (runStatus.status !== 'completed') {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: `Assistant run failed: ${runStatus.status}` })
+      };
+    }
 
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
-    const lastMessage = messagesResponse.data?.[0] || { content: [] };
+    // Trova l'ultima risposta dell'assistente
+    const lastAssistantMsg = messagesResponse.data.find(m => m.role === "assistant") || messagesResponse.data[0] || { content: [] };
 
-    const textReply = lastMessage.content
+    const textReply = lastAssistantMsg.content
       ?.filter(c => c.type === 'text')
       ?.map(c => c.text?.value)
       ?.join('\n')
