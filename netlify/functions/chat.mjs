@@ -2,7 +2,7 @@ import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import { Readable } from 'stream';
 import OpenAI from 'openai';
-import fetch from 'node-fetch'; // assicurati sia tra le dipendenze
+import fetch from 'node-fetch'; // assicurati sia in package.json
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -37,16 +37,12 @@ export const handler = async (event) => {
     console.log('--- STEP 2: Parsed fields:', fields);
     console.log('--- STEP 3: Parsed files:', files);
 
-    // Recupera testo dal campo message
     const userMessageRaw = Array.isArray(fields.message)
       ? fields.message[0]
       : fields.message;
-
-    // Recupera file dal campo file (opzionale)
     const file = Array.isArray(files.file) ? files.file[0] : files.file;
-    let fileId = null;
 
-    // Se c'è un file, caricalo su OpenAI e ottieni file_id
+    let fileId = null;
     if (file && file.filepath) {
       console.log('--- STEP 4: Upload file verso OpenAI...');
       const upload = await openai.files.create({
@@ -61,16 +57,13 @@ export const handler = async (event) => {
     const thread = threadId ? { id: threadId } : await openai.beta.threads.create();
     console.log('--- STEP 5: Thread creato/recuperato:', thread.id);
 
-    // Prepara il messaggio unendo testo utente + riferimento file
+    // Messaggio che include sia testo che file_id se presenti
     let safeMessage = "";
     if (typeof userMessageRaw === "string" && userMessageRaw.trim() && fileId) {
-      // Testo utente + file_id nel prompt
       safeMessage = `${userMessageRaw.trim()}\n[file_id: ${fileId}]`;
     } else if (fileId) {
-      // Solo file
       safeMessage = `Esegui una regressione sul file_id: ${fileId}`;
     } else if (typeof userMessageRaw === "string" && userMessageRaw.trim()) {
-      // Solo testo
       safeMessage = userMessageRaw.trim();
     } else {
       safeMessage = "Messaggio vuoto.";
@@ -113,7 +106,13 @@ export const handler = async (event) => {
       if (runStatus.status === 'requires_action') {
         const toolCalls = runStatus.required_action?.submit_tool_outputs?.tool_calls || [];
         for (const call of toolCalls) {
-          const { tool_call_id, function: { name, arguments: argsRaw } } = call;
+          // Estrai tool_call_id in modo sicuro
+          const tool_call_id = call.tool_call_id;
+          const name = call.function.name;
+          const argsRaw = call.function.arguments;
+
+          console.log('--- STEP: tool_call_id:', tool_call_id, 'name:', name);
+
           let args;
           try {
             args = JSON.parse(argsRaw);
@@ -136,14 +135,14 @@ export const handler = async (event) => {
             backendResult = { errore: err.message };
           }
 
-          // Invio la risposta alla tool-call
+          // Invia la risposta alla tool-call
           await openai.beta.threads.runs.submitToolOutputs(
             thread.id,
             run.id,
             {
               tool_outputs: [
                 {
-                  tool_call_id,
+                  tool_call_id, // <-- OBBLIGATORIO!
                   output: JSON.stringify(backendResult)
                 }
               ]
