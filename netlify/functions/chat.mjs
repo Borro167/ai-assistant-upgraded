@@ -3,10 +3,10 @@ import fs from 'fs';
 import { Readable } from 'stream';
 import OpenAI from 'openai';
 
-// Inizializza OpenAI client (API KEY da variabile ambiente Netlify)
+// Inizializza OpenAI client (API KEY da Netlify env)
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Funzione per adattare l'evento Netlify a una request stream (necessario per formidable)
+// Adatta evento Netlify a request stream (per formidable)
 function buildReadableRequest(event) {
   const buffer = Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8');
   const readable = Readable.from([buffer]);
@@ -16,7 +16,7 @@ function buildReadableRequest(event) {
   return readable;
 }
 
-// Parsing del form-data (messaggio + file) con formidable
+// Parsing form-data (messaggio + file) con formidable
 function parseFormData(req) {
   return new Promise((resolve, reject) => {
     const form = new IncomingForm({ uploadDir: '/tmp', keepExtensions: true });
@@ -33,21 +33,17 @@ export const handler = async (event) => {
   }
 
   try {
-    // 1. Parsing dati ricevuti dal frontend
+    // 1. Parsing dati da frontend
     const req = buildReadableRequest(event);
     const { fields, files } = await parseFormData(req);
 
     // 2. Estrai messaggio utente e file
-    const userMessage = Array.isArray(fields.message)
+    const userMessageRaw = Array.isArray(fields.message)
       ? fields.message[0]
-      : fields.message || '';
-    const threadId = fields.threadId || null;
+      : fields.message;
+
+    // 3. Carica file se presente
     const file = Array.isArray(files.file) ? files.file[0] : files.file;
-
-    // 3. Crea thread se necessario
-    const thread = threadId ? { id: threadId } : await openai.beta.threads.create();
-
-    // 4. Se presente, carica file su OpenAI e ottieni fileId
     let fileId = null;
     if (file && file.filepath) {
       const upload = await openai.files.create({
@@ -56,7 +52,7 @@ export const handler = async (event) => {
       });
       fileId = upload.id;
 
-      // (Opzionale) Indicizza file su vector store se usi questa funzione
+      // (Opzionale) Indicizza file in vector store se serve
       if (
         openai.beta?.vectorStores?.fileBatches?.uploadAndPoll &&
         process.env.OPENAI_VECTOR_STORE_ID
@@ -68,13 +64,21 @@ export const handler = async (event) => {
       }
     }
 
-    // 5. Prepara il payload, ATTENZIONE: content DEVE essere [{type:"text", text:...}]
+    // 4. Genera messaggio sicuro (mai vuoto)
+    const safeMessage = (typeof userMessageRaw === "string" && userMessageRaw.trim())
+      ? userMessageRaw.trim()
+      : (fileId ? "Ecco il file allegato." : "Messaggio vuoto.");
+
+    const threadId = fields.threadId || null;
+    const thread = threadId ? { id: threadId } : await openai.beta.threads.create();
+
+    // 5. Costruisci payload: content sempre [{type:"text", text:...}]
     const messagePayload = {
       role: 'user',
       content: [
         {
           type: "text",
-          text: userMessage // Deve essere text, NON value
+          text: safeMessage
         }
       ],
       ...(fileId && {
@@ -90,15 +94,15 @@ export const handler = async (event) => {
       })
     };
 
-    // 6. Invia il messaggio all'assistant
+    // 6. Invia messaggio all'assistant
     await openai.beta.threads.messages.create(thread.id, messagePayload);
 
-    // 7. Avvia il run dell'assistant
+    // 7. Avvia run assistant
     const run = await openai.beta.threads.runs.create(thread.id, {
       assistant_id: process.env.OPENAI_ASSISTANT_ID,
     });
 
-    // 8. Attendi il completamento del run (polling ogni 1s)
+    // 8. Polling finché non è completato
     let runStatus;
     do {
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
@@ -116,7 +120,7 @@ export const handler = async (event) => {
       };
     }
 
-    // 9. Estrai la risposta assistant
+    // 9. Recupera risposta assistant
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
     const lastAssistantMsg = messagesResponse.data.find(m => m.role === "assistant") || messagesResponse.data[0] || { content: [] };
 
@@ -126,7 +130,6 @@ export const handler = async (event) => {
       ?.join('\n')
       ?.trim() || '[Nessuna risposta generata]';
 
-    // 10. Risposta al frontend
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -135,7 +138,7 @@ export const handler = async (event) => {
       })
     };
   } catch (err) {
-    // Logging dettagliato errori
+    // Logging errori dettagliati
     console.error('❌ Error in handler:', err);
     if (err.response && err.response.data) {
       console.error('OpenAI API response:', err.response.data);
