@@ -57,26 +57,23 @@ export const handler = async (event) => {
     const thread = threadId ? { id: threadId } : await openai.beta.threads.create();
     console.log('--- STEP 5: Thread creato/recuperato:', thread.id);
 
-    // Messaggio che include sia testo che file_id se presenti
-    let safeMessage = "";
-    if (typeof userMessageRaw === "string" && userMessageRaw.trim() && fileId) {
-      safeMessage = `${userMessageRaw.trim()}\n[file_id: ${fileId}]`;
-    } else if (fileId) {
-      safeMessage = `Esegui una regressione sul file_id: ${fileId}`;
-    } else if (typeof userMessageRaw === "string" && userMessageRaw.trim()) {
-      safeMessage = userMessageRaw.trim();
-    } else {
-      safeMessage = "Messaggio vuoto.";
-    }
-
+    // Se c'è un file, lo alleghiamo con file_search tool; testo separato
     const messagePayload = {
       role: 'user',
       content: [
         {
-          type: "text",
-          text: safeMessage
+          type: 'text',
+          text: userMessageRaw?.trim() || (fileId ? 'Ecco il file allegato' : 'Messaggio vuoto.')
         }
-      ]
+      ],
+      ...(fileId && {
+        attachments: [
+          {
+            file_id: fileId,
+            tools: [{ type: 'file_search' }]
+          }
+        ]
+      })
     };
     console.log('--- STEP 6: Payload preparato:', messagePayload);
 
@@ -88,10 +85,10 @@ export const handler = async (event) => {
     });
     console.log('--- STEP 8: Run assistant creato:', run.id);
 
-    // ----------- CICLO POLLING + TOOL-CALL -----------
     let runStatus = run;
     let tentativi = 0;
-    let maxTentativi = 30;
+    const maxTentativi = 30;
+
     while (
       runStatus.status !== 'completed' &&
       runStatus.status !== 'failed' &&
@@ -99,14 +96,13 @@ export const handler = async (event) => {
       tentativi < maxTentativi
     ) {
       tentativi++;
-      await new Promise((res) => setTimeout(res, 1000));
+      await new Promise(res => setTimeout(res, 1000));
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
       console.log(`--- STEP 9: Polling run status: ${runStatus.status} (tentativo ${tentativi})`);
 
       if (runStatus.status === 'requires_action') {
         const toolCalls = runStatus.required_action?.submit_tool_outputs?.tool_calls || [];
         for (const call of toolCalls) {
-          // Estrai tool_call_id in modo sicuro
           const tool_call_id = call.tool_call_id;
           const name = call.function.name;
           const argsRaw = call.function.arguments;
@@ -120,14 +116,13 @@ export const handler = async (event) => {
             args = argsRaw;
           }
 
-          // Chiama il backend Python su Render
           const backendUrl = `${process.env.RENDER_BACKEND_URL}/${name}`;
           let backendResult = {};
           try {
             const backendResp = await fetch(backendUrl, {
               method: 'POST',
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(args)
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(args),
             });
             backendResult = await backendResp.json();
           } catch (err) {
@@ -135,19 +130,9 @@ export const handler = async (event) => {
             backendResult = { errore: err.message };
           }
 
-          // Invia la risposta alla tool-call
-          await openai.beta.threads.runs.submitToolOutputs(
-            thread.id,
-            run.id,
-            {
-              tool_outputs: [
-                {
-                  tool_call_id, // <-- OBBLIGATORIO!
-                  output: JSON.stringify(backendResult)
-                }
-              ]
-            }
-          );
+          await openai.beta.threads.runs.submitToolOutputs(thread.id, run.id, {
+            tool_outputs: [{ tool_call_id, output: JSON.stringify(backendResult) }],
+          });
           console.log('--- STEP: Tool output inviato a OpenAI con tool_call_id:', tool_call_id);
         }
       }
@@ -157,22 +142,21 @@ export const handler = async (event) => {
       console.error('--- STEP 12: Run assistant NON completato:', runStatus.status);
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: `Assistant run failed: ${runStatus.status}` })
+        body: JSON.stringify({ error: `Assistant run failed: ${runStatus.status}` }),
       };
     }
 
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
     console.log('--- STEP 13: MESSAGES RESPONSE:', JSON.stringify(messagesResponse.data, null, 2));
 
-    // Trova il PRIMO messaggio assistant con testo valido
     let textReply = '[Nessuna risposta generata]';
     if (Array.isArray(messagesResponse.data)) {
-      const assistants = messagesResponse.data.filter(m => m.role === "assistant");
+      const assistants = messagesResponse.data.filter(m => m.role === 'assistant');
       for (const msg of assistants) {
         if (Array.isArray(msg.content)) {
           const text = msg.content
             .filter(c => c.type === 'text')
-            .map(c => (typeof c.text === 'string' ? c.text : (c.text?.value || '')))
+            .map(c => (typeof c.text === 'string' ? c.text : c.text?.value || ''))
             .filter(Boolean)
             .join('\n')
             .trim();
@@ -190,12 +174,12 @@ export const handler = async (event) => {
       statusCode: 200,
       body: JSON.stringify({
         threadId: thread.id,
-        message: textReply
-      })
+        message: textReply,
+      }),
     };
   } catch (err) {
     console.error('❌ ERROR HANDLER:', err);
-    if (err.response && err.response.data) {
+    if (err.response?.data) {
       console.error('❌ OpenAI API response:', err.response.data);
     }
     return {
