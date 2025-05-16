@@ -13,16 +13,42 @@
       flex-direction: column;
       height: 100vh;
     }
+    #chat-form {
+      margin: 0 auto;
+      width: 100%;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      height: 100vh;
+      justify-content: flex-end;
+    }
     #chat {
       flex: 1;
+      min-height: 350px;
+      max-height: 65vh;
       overflow-y: auto;
-      padding: 20px;
+      padding: 18px 10px 10px 10px;
+      background: #f8f9fa;
+      border-radius: 16px;
+      margin-bottom: 8px;
+      box-shadow: 0 1px 8px rgba(0,0,0,0.08);
+      transition: border 0.2s;
+      border: 2px solid #f8f9fa;
+    }
+    #chat.dragover {
+      border: 2px dashed #007bff;
+      background: #e3f0ff;
     }
     .message {
-      max-width: 70%;
-      margin-bottom: 10px;
-      padding: 10px 15px;
-      border-radius: 12px;
+      max-width: 80%;
+      margin-bottom: 9px;
+      padding: 11px 17px;
+      border-radius: 15px;
+      font-size: 1.08em;
+      line-height: 1.5;
+      word-break: break-word;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
     }
     .user {
       background: #007bff;
@@ -30,61 +56,72 @@
       margin-left: auto;
       text-align: right;
     }
-    .bot {
-      background: #e4e6eb;
-      color: black;
+    .assistant {
+      background: #fff;
+      color: #222;
       margin-right: auto;
+      border: 1px solid #dbeafe;
       text-align: left;
     }
-    #input-area {
-      display: flex;
-      padding: 15px;
-      border-top: 1px solid #ccc;
-      background: white;
+    .spinner {
+      color: #888;
+      background: #f3f3f3;
+      border: 1px dashed #dbeafe;
+      font-style: italic;
+      text-align: center;
+    }
+    #message, #file, #send {
+      font-size: 1em;
+      padding: 10px;
+      border-radius: 7px;
+      border: 1px solid #dbeafe;
+      margin-bottom: 0;
+      box-sizing: border-box;
     }
     #message {
+      width: 60%;
+      flex: 2;
+      margin-right: 7px;
+    }
+    #file {
+      width: 27%;
       flex: 1;
-      padding: 10px;
-      font-size: 1em;
+      margin-right: 7px;
     }
-    #sendBtn {
-      padding: 10px 20px;
-      margin-left: 10px;
+    #send {
+      width: 13%;
+      flex: 0.5;
+      background: #007bff;
+      color: white;
+      border: none;
       cursor: pointer;
+      transition: background 0.2s;
     }
-    #drop-zone {
-      border: 2px dashed #999;
-      border-radius: 10px;
-      padding: 20px;
-      margin: 10px;
-      text-align: center;
-      color: #666;
-      background: #fffdf9;
+    #send:hover {
+      background: #0056b3;
     }
-    #drop-zone.dragover {
-      background-color: #e0ffe0;
-      border-color: #4caf50;
+    @media (max-width: 600px) {
+      #chat-form {
+        max-width: 100vw;
+        padding: 0 6px;
+      }
+      #chat {
+        min-height: 250px;
+        font-size: 0.98em;
+      }
     }
-    #file-status {
-      margin-top: 10px;
-      font-style: italic;
-      color: #333;
-    }
+    /* Optional: Hide file input button, show only label (customize as you wish) */
   </style>
 </head>
 <body>
-  <div id="chat"></div>
-
-  <div id="drop-zone">
-    Trascina qui un file PDF o CSV da analizzare
-    <div id="file-status">Nessun file caricato</div>
-  </div>
-
-  <div id="input-area">
-    <input type="text" id="message" placeholder="Scrivi un messaggio..." />
-    <button id="sendBtn">Invia</button>
-  </div>
-
+  <form id="chat-form" autocomplete="off">
+    <div id="chat"></div>
+    <div style="display: flex; width: 100%; gap: 0;">
+      <input id="message" type="text" placeholder="Scrivi qui il messaggio..." autocomplete="off" />
+      <input id="file" type="file" />
+      <button id="send" type="submit">Invia</button>
+    </div>
+  </form>
   <script src="chat-ui.js"></script>
 </body>
 </html>
