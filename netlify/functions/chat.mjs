@@ -3,6 +3,9 @@ import fs from 'fs';
 import { Readable } from 'stream';
 import OpenAI from 'openai';
 
+// Se usi node-fetch per chiamare il backend Render:
+import fetch from 'node-fetch'; // Assicurati sia tra le dipendenze in package.json
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 function buildReadableRequest(event) {
@@ -50,19 +53,6 @@ export const handler = async (event) => {
       });
       fileId = upload.id;
       console.log('--- STEP 4b: File caricato su OpenAI con id:', fileId);
-
-      // (Opzionale) Indicizza file su vector store
-      if (
-        openai.beta?.vectorStores?.fileBatches?.uploadAndPoll &&
-        process.env.OPENAI_VECTOR_STORE_ID
-      ) {
-        console.log('--- STEP 4c: Indicizzazione vector store...');
-        await openai.beta.vectorStores.fileBatches.uploadAndPoll(
-          process.env.OPENAI_VECTOR_STORE_ID,
-          { files: [fileId] }
-        );
-        console.log('--- STEP 4d: Indicizzazione vector store completata.');
-      }
     }
 
     const safeMessage = (typeof userMessageRaw === "string" && userMessageRaw.trim())
@@ -73,6 +63,7 @@ export const handler = async (event) => {
     const thread = threadId ? { id: threadId } : await openai.beta.threads.create();
     console.log('--- STEP 5: Thread creato/recuperato:', thread.id);
 
+    // PREPARA ATTACHMENTS SOLO SE C'È UN FILE
     const messagePayload = {
       role: 'user',
       content: [
@@ -85,10 +76,7 @@ export const handler = async (event) => {
         attachments: [
           {
             file_id: fileId,
-            tools: [
-              { type: "code_interpreter" },
-              { type: "file_search" }
-            ]
+            tools: [{ type: "analizza_file_regressione" }] // Usa qui il nome del TUO tool su Platform
           }
         ]
       })
@@ -103,21 +91,69 @@ export const handler = async (event) => {
     });
     console.log('--- STEP 8: Run assistant creato:', run.id);
 
-    // Polling finché non è completato
-    let runStatus;
+    // ----------- CICLO DI POLLING E GESTIONE requires_action -----------
+    let runStatus = run;
     let tentativi = 0;
-    do {
-      runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-      console.log(`--- STEP 9: Polling run status: ${runStatus.status} (tentativo ${++tentativi})`);
-      await new Promise((res) => setTimeout(res, 1000));
-    } while (
+    let maxTentativi = 30;
+    while (
       runStatus.status !== 'completed' &&
       runStatus.status !== 'failed' &&
-      runStatus.status !== 'cancelled'
-    );
+      runStatus.status !== 'cancelled' &&
+      tentativi < maxTentativi
+    ) {
+      tentativi++;
+      await new Promise((res) => setTimeout(res, 1000));
+      runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+      console.log(`--- STEP 9: Polling run status: ${runStatus.status} (tentativo ${tentativi})`);
+
+      // GESTIONE requires_action
+      if (runStatus.status === 'requires_action') {
+        const toolCalls = runStatus.required_action?.submit_tool_outputs?.tool_calls || [];
+        for (const call of toolCalls) {
+          const { tool_call_id, function: { name, arguments: argsRaw } } = call;
+          let args;
+          try {
+            args = JSON.parse(argsRaw);
+          } catch {
+            args = argsRaw; // fallback se già oggetto
+          }
+          console.log(`--- STEP 10: Tool richiesto: ${name} con args:`, args);
+
+          // CHIAMA IL BACKEND PYTHON SU RENDER
+          const backendUrl = `${process.env.RENDER_BACKEND_URL}/analizza_file_regressione`;
+          let backendResult = {};
+          try {
+            const backendResp = await fetch(backendUrl, {
+              method: 'POST',
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(args)
+            });
+            backendResult = await backendResp.json();
+          } catch (err) {
+            console.error('--- ERRORE chiamata backend:', err);
+            backendResult = { errore: err.message };
+          }
+
+          // INVIA RISPOSTA DEL BACKEND AL TOOL-CALL
+          await openai.beta.threads.runs.submitToolOutputs(
+            thread.id,
+            run.id,
+            {
+              tool_outputs: [
+                {
+                  tool_call_id,
+                  output: JSON.stringify(backendResult)
+                }
+              ]
+            }
+          );
+          console.log('--- STEP 11: Tool output inviato a OpenAI');
+        }
+      }
+    }
 
     if (runStatus.status !== 'completed') {
-      console.error('--- STEP 10: Run assistant NON completato:', runStatus.status);
+      console.error('--- STEP 12: Run assistant NON completato:', runStatus.status);
       return {
         statusCode: 500,
         body: JSON.stringify({ error: `Assistant run failed: ${runStatus.status}` })
@@ -125,9 +161,9 @@ export const handler = async (event) => {
     }
 
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
-    console.log('--- STEP 11: MESSAGES RESPONSE:', JSON.stringify(messagesResponse.data, null, 2));
+    console.log('--- STEP 13: MESSAGES RESPONSE:', JSON.stringify(messagesResponse.data, null, 2));
 
-    // Trova sempre il PRIMO messaggio assistant con testo valido
+    // Trova il PRIMO messaggio assistant con testo valido
     let textReply = '[Nessuna risposta generata]';
     if (Array.isArray(messagesResponse.data)) {
       const assistants = messagesResponse.data.filter(m => m.role === "assistant");
@@ -147,7 +183,7 @@ export const handler = async (event) => {
       }
     }
 
-    console.log('--- STEP 12: textReply finale:', textReply);
+    console.log('--- STEP 14: textReply finale:', textReply);
 
     return {
       statusCode: 200,
