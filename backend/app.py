@@ -14,9 +14,10 @@ def download_openai_file(file_id):
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
     url = f"https://api.openai.com/v1/files/{file_id}/content"
     res = requests.get(url, headers=headers)
+    print(f"[DEBUG] Richiesta download file {file_id}, status {res.status_code}")
     if res.status_code != 200:
         print("Errore recupero file OpenAI:", res.text)
-        raise Exception("Errore nel recupero file OpenAI")
+        raise Exception(f"Errore nel recupero file OpenAI: {res.text}")
     return BytesIO(res.content)
 
 def best_fit_model(x, y):
@@ -64,9 +65,11 @@ def generate_pdf(model, coeffs, r2, intercept):
 @app.route("/analizza_file_regressione", methods=["POST"])
 def analizza_file_regressione():
     data = request.get_json()
-    file_id = data.get("file_id")
+    print("[DEBUG] Payload ricevuto:", data)
+    file_id = data.get("file_id") if data else None
 
     if not file_id:
+        print("[ERROR] Manca il parametro file_id!")
         return jsonify({"errore": "Manca il parametro file_id!"}), 400
 
     print("[Render] Ricevuto file_id:", file_id)
@@ -74,16 +77,21 @@ def analizza_file_regressione():
     # Scarica il file da OpenAI
     try:
         file_stream = download_openai_file(file_id)
+        print("[DEBUG] File scaricato da OpenAI")
     except Exception as e:
+        print("[ERROR] Download file:", e)
         return jsonify({"errore": "Impossibile scaricare file da OpenAI.", "dettaglio": str(e)}), 400
 
     # Prova a leggere CSV dal file
     try:
         df = pd.read_csv(file_stream)
+        print("[DEBUG] CSV letto correttamente, shape:", df.shape)
     except Exception as e:
+        print("[ERROR] Parsing CSV:", e)
         return jsonify({"errore": "Errore nel parsing CSV", "dettaglio": str(e)}), 400
 
     if df.shape[1] < 2:
+        print("[ERROR] Il file ha meno di 2 colonne!")
         return jsonify({"errore": "Il file deve avere almeno 2 colonne."}), 400
 
     x = df.iloc[:, 0].values
@@ -91,6 +99,7 @@ def analizza_file_regressione():
 
     model, r2, coeffs, intercept = best_fit_model(x, y)
     path = generate_pdf(model, coeffs, r2, intercept)
+    print("[DEBUG] PDF generato:", path)
 
     return jsonify({
         "model": model,
@@ -103,18 +112,21 @@ def analizza_file_regressione():
 @app.route("/stima", methods=["POST"])
 def stima():
     data = request.get_json()
-    modello = data["modello"]
-    coeffs = data["coeffs"]
-    x = data["x"]
+    print("[DEBUG] Payload ricevuto (stima):", data)
+    modello = data.get("modello")
+    coeffs = data.get("coeffs")
+    x = data.get("x")
+    intercept = data.get("intercept", 0)
 
     y = 0
     if modello == "lineare":
-        y = coeffs[0] * x + data.get("intercept", 0)
+        y = coeffs[0] * x + intercept
     elif modello == "polinomiale":
         y = sum(c * (x ** i) for i, c in enumerate(coeffs))
     elif modello == "logaritmico":
-        y = coeffs[0] * np.log(x) + data.get("intercept", 0)
+        y = coeffs[0] * np.log(x) + intercept
     else:
+        print("[ERROR] Modello non riconosciuto:", modello)
         return jsonify({"errore": "Modello non riconosciuto"}), 400
 
     return jsonify({"x": x, "y": y})
