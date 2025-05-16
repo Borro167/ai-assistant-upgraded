@@ -120,16 +120,31 @@ export const handler = async (event) => {
       };
     }
 
-    // 9. Recupera risposta assistant
+    // 9. Recupera risposta assistant (estrattore robusto)
     const messagesResponse = await openai.beta.threads.messages.list(thread.id);
-    const lastAssistantMsg = messagesResponse.data.find(m => m.role === "assistant") || messagesResponse.data[0] || { content: [] };
+    console.log('MESSAGES RESPONSE:', JSON.stringify(messagesResponse.data, null, 2)); // DEBUG
 
-    const textReply = lastAssistantMsg.content
-      ?.filter(c => c.type === 'text')
-      ?.map(c => c.text?.value || c.text)
-      ?.join('\n')
-      ?.trim() || '[Nessuna risposta generata]';
+    let textReply = '[Nessuna risposta generata]';
+    if (Array.isArray(messagesResponse.data)) {
+      // Trova tutti i messaggi di ruolo assistant
+      const assistants = messagesResponse.data.filter(m => m.role === "assistant");
+      for (const msg of assistants) {
+        if (Array.isArray(msg.content)) {
+          const text = msg.content
+            .filter(c => c.type === 'text')
+            .map(c => (typeof c.text === 'string' ? c.text : (c.text?.value || '')))
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+          if (text) {
+            textReply = text;
+            break;
+          }
+        }
+      }
+    }
 
+    // 10. Risposta al frontend
     return {
       statusCode: 200,
       body: JSON.stringify({
