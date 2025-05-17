@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "openai": "^4.21.0",
-    "formidable": "^3.5.0"
+    "parse-multipart": "^1.0.4"
   }
 }
+
