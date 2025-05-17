@@ -1,29 +1,13 @@
 {
-  "name": "ai-assistant-regressivo",
+  "name": "assistant-regressivo",
   "version": "1.0.0",
-  "description": "Assistant AI con regressione e analisi file",
-  "type": "module",
-  "main": "netlify/functions/chat.mjs",
+  "description": "Chat AI Regressione solo Code Interpreter - Netlify",
+  "main": "chat-ui.js",
   "scripts": {
-    "start": "echo 'Usa Netlify per avviare le funzioni serverless'",
-    "lint": "echo 'TODO: aggiungi ESLint se vuoi'",
-    "build": "echo 'Build virtuale per Netlify'"
+    "start": "netlify dev"
   },
   "dependencies": {
-    "formidable": "^3.5.0",
-    "openai": "^4.24.0",
-    "dezalgo": "^1.0.3",
-    "once": "^1.4.0",
-    "@paralleldrive/cuid2": "^2.2.2",
-    "node-fetch": "^3.3.2",
-    "formdata-node": "^5.0.0",
-    "form-data-encoder": "^2.0.2",
-    "abort-controller": "^3.0.0",
-    "agentkeepalive": "^4.5.0",
-    "wrappy": "^1.0.2",
-    "asap": "^2.0.6",
-    "event-target-shim": "^5.0.1",
-    "humanize-ms": "^1.2.1",
-    "@noble/hashes": "^1.3.0"
+    "openai": "^4.21.0",
+    "formidable": "^3.5.0"
   }
 }
