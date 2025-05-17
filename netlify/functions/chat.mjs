@@ -4,7 +4,6 @@ import multipart from "parse-multipart";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export const handler = async (event) => {
-  // Log headers per debug
   console.log("event.headers:", event.headers);
 
   if (event.httpMethod !== "POST") {
@@ -14,7 +13,7 @@ export const handler = async (event) => {
     };
   }
 
-  // Prendi content-type sempre in modo robusto
+  // Prendi il content-type (Netlify può usare diversi formati header)
   const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
   console.log("Detected content-type:", contentType);
 
@@ -23,19 +22,24 @@ export const handler = async (event) => {
 
   // ========== CASO 1: FILE UPLOAD (multipart/form-data) ==========
   if (contentType && contentType.includes('multipart/form-data')) {
-    const boundaryIndex = contentType.indexOf('boundary=');
-    if (boundaryIndex === -1) {
+    // Estrazione robusta del boundary
+    const boundaryMatch = contentType.match(/boundary=(.*)$/);
+    if (!boundaryMatch) {
       return {
         statusCode: 400,
         body: JSON.stringify({ error: "Boundary mancante", contentType }),
       };
     }
-    const boundary = contentType.substring(boundaryIndex + 9);
+    // Prendi solo la stringa fino a eventuale punto e virgola/spazio/fine linea
+    let cleanBoundary = boundaryMatch[1].trim();
+    if (cleanBoundary.includes(';')) {
+      cleanBoundary = cleanBoundary.split(';')[0].trim();
+    }
 
     const bodyBuffer = Buffer.from(event.body, "base64");
-    const parts = multipart.Parse(bodyBuffer, boundary);
+    const parts = multipart.Parse(bodyBuffer, cleanBoundary);
 
-    // Trova il file e il messaggio
+    // Trova file e messaggio
     let filePart = parts.find((p) => p.filename);
     let messagePart = parts.find((p) => p.name === "message");
 
@@ -55,16 +59,16 @@ export const handler = async (event) => {
   } else if (contentType && contentType.includes('application/json')) {
     const body = JSON.parse(event.body);
     message = body.message || "";
-    // (Nessun file)
+    // Nessun file
   } else {
-    // Content-Type mancante o non gestito
+    // Content-Type mancante o non supportato
     return {
       statusCode: 400,
       body: JSON.stringify({ error: "Content-Type non supportato", contentType }),
     };
   }
 
-  // Assistant ID
+  // Assistant ID da variabile ambiente
   const assistantId = process.env.OPENAI_ASSISTANT_ID;
 
   // ========== LANCIA OPENAI ASSISTANT ==========
@@ -97,7 +101,7 @@ export const handler = async (event) => {
     };
   }
 
-  // File o testo?
+  // Se la risposta contiene un file (es. PDF generato)
   const attachments = last.content.filter((c) => c.type === "file");
   if (attachments.length > 0) {
     const fileId = attachments[0].file_id;
