@@ -13,7 +13,7 @@ export const handler = async (event) => {
     };
   }
 
-  // Prendi il content-type (Netlify può usare diversi formati header)
+  // Prendi il content-type in modo robusto
   const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
   console.log("Detected content-type:", contentType);
 
@@ -22,7 +22,7 @@ export const handler = async (event) => {
 
   // ========== CASO 1: FILE UPLOAD (multipart/form-data) ==========
   if (contentType && contentType.includes('multipart/form-data')) {
-    // Estrazione robusta del boundary
+    // Estrazione robusta del boundary (con controllo finale)
     const boundaryMatch = contentType.match(/boundary=(.*)$/);
     if (!boundaryMatch) {
       return {
@@ -30,7 +30,6 @@ export const handler = async (event) => {
         body: JSON.stringify({ error: "Boundary mancante", contentType }),
       };
     }
-    // Prendi solo la stringa fino a eventuale punto e virgola/spazio/fine linea
     let cleanBoundary = boundaryMatch[1].trim();
     if (cleanBoundary.includes(';')) {
       cleanBoundary = cleanBoundary.split(';')[0].trim();
