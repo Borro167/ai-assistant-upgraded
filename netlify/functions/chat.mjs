@@ -4,6 +4,9 @@ import multipart from "parse-multipart";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export const handler = async (event) => {
+  // Log headers per debug
+  console.log("event.headers:", event.headers);
+
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
@@ -11,43 +14,60 @@ export const handler = async (event) => {
     };
   }
 
+  // Prendi content-type sempre in modo robusto
   const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
-  if (!contentType.includes('multipart/form-data')) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "Content-Type non multipart/form-data" }),
-    };
-  }
-  const boundary = contentType.split("boundary=")[1];
-  if (!boundary) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "Boundary mancante" }),
-    };
-  }
+  console.log("Detected content-type:", contentType);
 
-  const bodyBuffer = Buffer.from(event.body, "base64");
-  const parts = multipart.Parse(bodyBuffer, boundary);
-
-  // Trova il file e il messaggio
-  let filePart = parts.find((p) => p.filename);
-  let messagePart = parts.find((p) => p.name === "message");
+  let message = "";
   let fileIds = [];
 
-  // Carica file su OpenAI se presente
-  if (filePart) {
-    const uploaded = await openai.files.create({
-      file: Buffer.from(filePart.data),
-      filename: filePart.filename,
-      purpose: "assistants",
-    });
-    fileIds.push(uploaded.id);
+  // ========== CASO 1: FILE UPLOAD (multipart/form-data) ==========
+  if (contentType && contentType.includes('multipart/form-data')) {
+    const boundaryIndex = contentType.indexOf('boundary=');
+    if (boundaryIndex === -1) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Boundary mancante", contentType }),
+      };
+    }
+    const boundary = contentType.substring(boundaryIndex + 9);
+
+    const bodyBuffer = Buffer.from(event.body, "base64");
+    const parts = multipart.Parse(bodyBuffer, boundary);
+
+    // Trova il file e il messaggio
+    let filePart = parts.find((p) => p.filename);
+    let messagePart = parts.find((p) => p.name === "message");
+
+    // Carica file su OpenAI se presente
+    if (filePart) {
+      const uploaded = await openai.files.create({
+        file: Buffer.from(filePart.data),
+        filename: filePart.filename,
+        purpose: "assistants",
+      });
+      fileIds.push(uploaded.id);
+    }
+
+    message = messagePart ? messagePart.data.toString() : "";
+
+  // ========== CASO 2: SOLO TESTO (application/json) ==========
+  } else if (contentType && contentType.includes('application/json')) {
+    const body = JSON.parse(event.body);
+    message = body.message || "";
+    // (Nessun file)
+  } else {
+    // Content-Type mancante o non gestito
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: "Content-Type non supportato", contentType }),
+    };
   }
 
-  const message = messagePart ? messagePart.data.toString() : "";
+  // Assistant ID
   const assistantId = process.env.OPENAI_ASSISTANT_ID;
 
-  // Assistant run
+  // ========== LANCIA OPENAI ASSISTANT ==========
   const thread = await openai.beta.threads.create();
   await openai.beta.threads.messages.create(thread.id, {
     role: "user",
@@ -59,7 +79,7 @@ export const handler = async (event) => {
     assistant_id: assistantId,
   });
 
-  // Polling
+  // Polling max 30 sec
   let result;
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 500));
@@ -67,6 +87,7 @@ export const handler = async (event) => {
     if (result.status === "completed") break;
   }
 
+  // Recupera risposta assistant
   const messages = await openai.beta.threads.messages.list(thread.id);
   const last = messages.data.find((msg) => msg.role === "assistant");
   if (!last) {
