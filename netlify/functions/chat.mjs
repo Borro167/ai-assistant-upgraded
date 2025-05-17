@@ -1,6 +1,14 @@
 import { OpenAI } from "openai";
 import multipart from "parse-multipart";
 
+/**
+ * Function Netlify compatibile per chat AI con upload file (PDF/CSV) e prompt testuale.
+ * - Gestione robusta content-type/boundary: regex, mai .split() su undefined
+ * - Funziona sia con multipart/form-data (upload file) sia con application/json (solo testo)
+ * - Se la risposta dell’assistente è un PDF, lo invia come file base64
+ * - Restituisce errori chiari se la richiesta non è conforme
+ */
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export const handler = async (event) => {
@@ -13,16 +21,21 @@ export const handler = async (event) => {
     };
   }
 
-  // Prendi il content-type in modo robusto
+  // 1. Content-Type: gestito sempre in modo robusto
   const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
   console.log("Detected content-type:", contentType);
 
   let message = "";
   let fileIds = [];
 
-  // CASO 1: FILE UPLOAD (multipart/form-data)
+  // 2. FILE UPLOAD (multipart/form-data)
   if (contentType && contentType.includes('multipart/form-data')) {
-    // Estrai boundary SOLO con la regex!
+    /**
+     * Estrazione boundary:
+     * - Usa regex /boundary=([^\s;]+)/
+     * - Prende solo il valore dopo 'boundary=', senza rischiare undefined
+     * - NON usa split/trim su valori incerti!
+     */
     const boundaryMatch = contentType.match(/boundary=([^\s;]+)/);
     if (!boundaryMatch) {
       return {
@@ -35,7 +48,7 @@ export const handler = async (event) => {
     const bodyBuffer = Buffer.from(event.body, "base64");
     const parts = multipart.Parse(bodyBuffer, cleanBoundary);
 
-    // Trova file e messaggio
+    // Trova file e messaggio nel form
     let filePart = parts.find((p) => p.filename);
     let messagePart = parts.find((p) => p.name === "message");
 
@@ -50,17 +63,19 @@ export const handler = async (event) => {
 
     message = messagePart ? messagePart.data.toString() : "";
 
-  // CASO 2: SOLO TESTO (application/json)
+  // 3. SOLO TESTO (application/json)
   } else if (contentType && contentType.includes('application/json')) {
     const body = JSON.parse(event.body);
     message = body.message || "";
   } else {
+    // Content-Type non gestito o mancante
     return {
       statusCode: 400,
       body: JSON.stringify({ error: "Content-Type non supportato", contentType }),
     };
   }
 
+  // 4. Assistant OpenAI: crea thread e invia messaggio (e file)
   const assistantId = process.env.OPENAI_ASSISTANT_ID;
   const thread = await openai.beta.threads.create();
   await openai.beta.threads.messages.create(thread.id, {
@@ -73,7 +88,7 @@ export const handler = async (event) => {
     assistant_id: assistantId,
   });
 
-  // Polling max 30 sec
+  // 5. Polling (aspetta che la risposta sia pronta, max 30s)
   let result;
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 500));
@@ -81,6 +96,7 @@ export const handler = async (event) => {
     if (result.status === "completed") break;
   }
 
+  // 6. Recupera risposta assistant: PDF/file o solo testo
   const messages = await openai.beta.threads.messages.list(thread.id);
   const last = messages.data.find((msg) => msg.role === "assistant");
   if (!last) {
@@ -90,6 +106,7 @@ export const handler = async (event) => {
     };
   }
 
+  // Se la risposta contiene un file (es. PDF generato)
   const attachments = last.content.filter((c) => c.type === "file");
   if (attachments.length > 0) {
     const fileId = attachments[0].file_id;
@@ -110,6 +127,7 @@ export const handler = async (event) => {
     };
   }
 
+  // Altrimenti restituisce risposta testuale
   const textReply = last.content
     .filter((c) => c.type === "text")
     .map((c) => c.text.value)
