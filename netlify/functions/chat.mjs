@@ -22,18 +22,15 @@ export const handler = async (event) => {
 
   // ========== CASO 1: FILE UPLOAD (multipart/form-data) ==========
   if (contentType && contentType.includes('multipart/form-data')) {
-    // Estrazione robusta del boundary (con controllo finale)
-    const boundaryMatch = contentType.match(/boundary=(.*)$/);
+    // Estrazione boundary con regex robusta: prende solo la stringa boundary
+    const boundaryMatch = contentType.match(/boundary=([^\s;]+)/);
     if (!boundaryMatch) {
       return {
         statusCode: 400,
         body: JSON.stringify({ error: "Boundary mancante", contentType }),
       };
     }
-    let cleanBoundary = boundaryMatch[1].trim();
-    if (cleanBoundary.includes(';')) {
-      cleanBoundary = cleanBoundary.split(';')[0].trim();
-    }
+    const cleanBoundary = boundaryMatch[1];
 
     const bodyBuffer = Buffer.from(event.body, "base64");
     const parts = multipart.Parse(bodyBuffer, cleanBoundary);
