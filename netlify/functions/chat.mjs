@@ -20,9 +20,9 @@ export const handler = async (event) => {
   let message = "";
   let fileIds = [];
 
-  // ========== CASO 1: FILE UPLOAD (multipart/form-data) ==========
+  // CASO 1: FILE UPLOAD (multipart/form-data)
   if (contentType && contentType.includes('multipart/form-data')) {
-    // Estrazione boundary con regex robusta: prende solo la stringa boundary
+    // Estrai boundary SOLO con la regex!
     const boundaryMatch = contentType.match(/boundary=([^\s;]+)/);
     if (!boundaryMatch) {
       return {
@@ -39,7 +39,6 @@ export const handler = async (event) => {
     let filePart = parts.find((p) => p.filename);
     let messagePart = parts.find((p) => p.name === "message");
 
-    // Carica file su OpenAI se presente
     if (filePart) {
       const uploaded = await openai.files.create({
         file: Buffer.from(filePart.data),
@@ -51,23 +50,18 @@ export const handler = async (event) => {
 
     message = messagePart ? messagePart.data.toString() : "";
 
-  // ========== CASO 2: SOLO TESTO (application/json) ==========
+  // CASO 2: SOLO TESTO (application/json)
   } else if (contentType && contentType.includes('application/json')) {
     const body = JSON.parse(event.body);
     message = body.message || "";
-    // Nessun file
   } else {
-    // Content-Type mancante o non supportato
     return {
       statusCode: 400,
       body: JSON.stringify({ error: "Content-Type non supportato", contentType }),
     };
   }
 
-  // Assistant ID da variabile ambiente
   const assistantId = process.env.OPENAI_ASSISTANT_ID;
-
-  // ========== LANCIA OPENAI ASSISTANT ==========
   const thread = await openai.beta.threads.create();
   await openai.beta.threads.messages.create(thread.id, {
     role: "user",
@@ -87,7 +81,6 @@ export const handler = async (event) => {
     if (result.status === "completed") break;
   }
 
-  // Recupera risposta assistant
   const messages = await openai.beta.threads.messages.list(thread.id);
   const last = messages.data.find((msg) => msg.role === "assistant");
   if (!last) {
@@ -97,7 +90,6 @@ export const handler = async (event) => {
     };
   }
 
-  // Se la risposta contiene un file (es. PDF generato)
   const attachments = last.content.filter((c) => c.type === "file");
   if (attachments.length > 0) {
     const fileId = attachments[0].file_id;
@@ -118,7 +110,6 @@ export const handler = async (event) => {
     };
   }
 
-  // Altrimenti risposta testuale
   const textReply = last.content
     .filter((c) => c.type === "text")
     .map((c) => c.text.value)
