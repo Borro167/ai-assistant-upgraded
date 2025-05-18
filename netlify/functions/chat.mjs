@@ -13,7 +13,6 @@ export const handler = async (event) => {
 
     const contentType =
       event.headers["content-type"] || event.headers["Content-Type"] || "";
-
     if (!contentType.includes("application/json")) {
       return {
         statusCode: 400,
@@ -21,25 +20,12 @@ export const handler = async (event) => {
       };
     }
 
-    const body = JSON.parse(event.body);
-    const { message, fileData, fileName } = body;
-
-    if (!message && !fileData) {
+    const { message, fileId } = JSON.parse(event.body);
+    if (!message && !fileId) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Messaggio o file mancante" }),
+        body: JSON.stringify({ error: "Messaggio o fileId mancante" }),
       };
-    }
-
-    let fileIds = [];
-    if (fileData && fileName) {
-      const buffer = Buffer.from(fileData, "base64");
-      const uploaded = await openai.files.create({
-        file: buffer,
-        filename: fileName,
-        purpose: "assistants",
-      });
-      fileIds.push(uploaded.id);
     }
 
     const assistantId = process.env.OPENAI_ASSISTANT_ID;
@@ -47,8 +33,8 @@ export const handler = async (event) => {
 
     await openai.beta.threads.messages.create(thread.id, {
       role: "user",
-      content: message || "",
-      ...(fileIds.length > 0 ? { file_ids: fileIds } : {}),
+      content: message,
+      ...(fileId ? { file_ids: [fileId] } : {}),
     });
 
     const run = await openai.beta.threads.runs.create(thread.id, {
@@ -64,7 +50,6 @@ export const handler = async (event) => {
 
     const messages = await openai.beta.threads.messages.list(thread.id);
     const last = messages.data.find((m) => m.role === "assistant");
-
     if (!last) {
       return {
         statusCode: 502,
