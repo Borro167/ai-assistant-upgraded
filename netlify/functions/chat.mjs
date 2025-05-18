@@ -23,7 +23,8 @@ export const handler = async (event) => {
     let message = "";
     let fileIds = [];
 
-    if (contentType && contentType.includes("multipart/form-data")) {
+    // --- CASO 1: multipart/form-data ---
+    if (contentType.includes("multipart/form-data")) {
       const boundaryMatch = contentType.match(/boundary=([^\s;]+)/);
       if (!boundaryMatch) {
         return {
@@ -34,37 +35,37 @@ export const handler = async (event) => {
       const cleanBoundary = boundaryMatch[1];
       console.log("Boundary trovato:", cleanBoundary);
 
-      // 👇 AGGIUNGI QUESTO CONTROLLO!
       if (!event.isBase64Encoded) {
         return {
           statusCode: 400,
           body: JSON.stringify({
-            error: "Body non in base64 (flag isBase64Encoded false)",
+            error: "Body non in base64",
           }),
         };
       }
 
       const bodyBuffer = Buffer.from(event.body, "base64");
       console.log("Body buffer length:", bodyBuffer.length);
-      console.log("Body preview:", bodyBuffer.toString("utf8", 0, 200));
 
       let parts;
       try {
         parts = multipart.Parse(bodyBuffer, cleanBoundary);
-      } catch (parseErr) {
-        console.error("Multipart Parse Error:", parseErr, bodyBuffer.toString());
+        // FILTRA parti incomplete per evitare crash
+        parts = parts.filter(
+          (p) => p.data !== undefined && typeof p.data !== "undefined"
+        );
+      } catch (err) {
+        console.error("Errore parse-multipart:", err.message);
         return {
           statusCode: 400,
-          body: JSON.stringify({
-            error: "Errore nel parsing multipart: " + parseErr.message,
-          }),
+          body: JSON.stringify({ error: "Errore parsing multipart" }),
         };
       }
 
       console.log("Parts trovate:", parts);
 
-      let filePart = parts.find((p) => p.filename);
-      let messagePart = parts.find((p) => p.name === "message");
+      const filePart = parts.find((p) => p.filename);
+      const messagePart = parts.find((p) => p.name === "message");
 
       if (filePart && filePart.data) {
         const uploaded = await openai.files.create({
@@ -77,26 +78,28 @@ export const handler = async (event) => {
 
       message =
         messagePart && messagePart.data
-          ? messagePart.data.toString()
+          ? messagePart.data.toString("utf8").trim()
           : "";
 
       if (!message && !filePart) {
         return {
           statusCode: 400,
           body: JSON.stringify({
-            error: "Richiesta vuota: manca messaggio e file.",
+            error: "Richiesta vuota: manca messaggio e file",
           }),
         };
       }
-    } else if (contentType && contentType.includes("application/json")) {
+
+      console.log("Messaggio:", message);
+
+    // --- CASO 2: application/json ---
+    } else if (contentType.includes("application/json")) {
       const body = JSON.parse(event.body);
       message = body.message || "";
       if (!message) {
         return {
           statusCode: 400,
-          body: JSON.stringify({
-            error: "Nessun messaggio nel body.",
-          }),
+          body: JSON.stringify({ error: "Messaggio mancante" }),
         };
       }
     } else {
@@ -109,16 +112,75 @@ export const handler = async (event) => {
       };
     }
 
-    // --- (RESTO DEL FLUSSO UGUALE A PRIMA) ---
+    // --- CREA THREAD ASSISTANT ---
+    const assistantId = process.env.OPENAI_ASSISTANT_ID;
+    const thread = await openai.beta.threads.create();
 
-    // ... assistant thread/response logic qui sotto come sopra
+    await openai.beta.threads.messages.create(thread.id, {
+      role: "user",
+      content: message,
+      ...(fileIds.length > 0 ? { file_ids: fileIds } : {}),
+    });
 
+    const run = await openai.beta.threads.runs.create(thread.id, {
+      assistant_id: assistantId,
+    });
+
+    // --- POLLING STATO RUN ---
+    let result;
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      result = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+      if (result.status === "completed") break;
+    }
+
+    // --- RECUPERA RISPOSTA ---
+    const messages = await openai.beta.threads.messages.list(thread.id);
+    const last = messages.data.find((m) => m.role === "assistant");
+
+    if (!last) {
+      return {
+        statusCode: 502,
+        body: JSON.stringify({ error: "Nessuna risposta dall'assistente" }),
+      };
+    }
+
+    const fileResponse = last.content.find((c) => c.type === "file");
+    if (fileResponse) {
+      const fileId = fileResponse.file_id;
+      const file = await openai.files.retrieveContent(fileId);
+      const chunks = [];
+      for await (const chunk of file) {
+        chunks.push(chunk);
+      }
+      const buffer = Buffer.concat(chunks);
+      return {
+        statusCode: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": "attachment; filename=risultato.pdf",
+        },
+        body: buffer.toString("base64"),
+        isBase64Encoded: true,
+      };
+    }
+
+    const textReply = last.content
+      .filter((c) => c.type === "text")
+      .map((c) => c.text.value)
+      .join("\n");
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ reply: textReply }),
+    };
   } catch (err) {
-    // LOG DELL'ERRORE COMPLETO
     console.error("FATAL ERROR:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message || "Errore interno." }),
+      body: JSON.stringify({
+        error: err.message || "Errore interno",
+      }),
     };
   }
 };
