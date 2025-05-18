@@ -1,14 +1,16 @@
 {
-  "name": "assistant-regressivo",
+  "name": "ai-assistant-upgraded",
   "version": "1.0.0",
-  "description": "Chat AI Regressione solo Code Interpreter - Netlify",
-  "main": "chat-ui.js",
+  "type": "module",
   "scripts": {
-    "start": "netlify dev"
+    "dev": "netlify dev",
+    "build": "echo 'No build step required'"
   },
   "dependencies": {
     "openai": "^4.21.0",
     "parse-multipart": "^1.0.4"
+  },
+  "devDependencies": {
+    "netlify-cli": "^15.9.0"
   }
 }
-
