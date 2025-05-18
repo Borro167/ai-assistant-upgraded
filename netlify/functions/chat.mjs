@@ -1,4 +1,5 @@
 import { OpenAI } from "openai";
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export const handler = async (event) => {
@@ -12,6 +13,7 @@ export const handler = async (event) => {
 
     const contentType =
       event.headers["content-type"] || event.headers["Content-Type"] || "";
+
     if (!contentType.includes("application/json")) {
       return {
         statusCode: 400,
@@ -62,6 +64,7 @@ export const handler = async (event) => {
 
     const messages = await openai.beta.threads.messages.list(thread.id);
     const last = messages.data.find((m) => m.role === "assistant");
+
     if (!last) {
       return {
         statusCode: 502,
@@ -82,4 +85,27 @@ export const handler = async (event) => {
         statusCode: 200,
         headers: {
           "Content-Type": "application/pdf",
-          "Content-Disposition": "attachment;
+          "Content-Disposition": "attachment; filename=risultato.pdf"
+        },
+        body: buffer.toString("base64"),
+        isBase64Encoded: true,
+      };
+    }
+
+    const textReply = last.content
+      .filter((c) => c.type === "text")
+      .map((c) => c.text.value)
+      .join("\n");
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ reply: textReply }),
+    };
+  } catch (err) {
+    console.error("Errore:", err);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message || "Errore interno" }),
+    };
+  }
+};
