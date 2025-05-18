@@ -15,9 +15,7 @@ export const handler = async (event) => {
     }
 
     const contentType =
-      event.headers["content-type"] ||
-      event.headers["Content-Type"] ||
-      "";
+      event.headers["content-type"] || event.headers["Content-Type"] || "";
     console.log("Detected content-type:", contentType);
 
     let message = "";
@@ -47,13 +45,37 @@ export const handler = async (event) => {
       const bodyBuffer = Buffer.from(event.body, "base64");
       console.log("Body buffer length:", bodyBuffer.length);
 
-      let parts;
+      let parts = [];
+      let filePart = null;
+      let messagePart = null;
+
       try {
-        parts = multipart.Parse(bodyBuffer, cleanBoundary);
-        // FILTRA parti incomplete per evitare crash
-        parts = parts.filter(
-          (p) => p.data !== undefined && typeof p.data !== "undefined"
-        );
+        if (bodyBuffer.length < 300) {
+          // Caso: solo testo "message"
+          const raw = bodyBuffer.toString("utf8");
+          const match = raw.match(/name="message"\s+([\s\S]*)--/);
+          message = match ? match[1].trim() : "";
+          console.log("Estratto messaggio da solo testo:", message);
+        } else {
+          parts = multipart.Parse(bodyBuffer, cleanBoundary);
+          parts = parts.filter(p => p.data !== undefined);
+
+          filePart = parts.find((p) => p.filename);
+          messagePart = parts.find((p) => p.name === "message");
+
+          if (filePart && filePart.data) {
+            const uploaded = await openai.files.create({
+              file: Buffer.from(filePart.data),
+              filename: filePart.filename,
+              purpose: "assistants",
+            });
+            fileIds.push(uploaded.id);
+          }
+
+          message = messagePart
+            ? messagePart.data.toString("utf8").trim()
+            : "";
+        }
       } catch (err) {
         console.error("Errore parse-multipart:", err.message);
         return {
@@ -62,26 +84,7 @@ export const handler = async (event) => {
         };
       }
 
-      console.log("Parts trovate:", parts);
-
-      const filePart = parts.find((p) => p.filename);
-      const messagePart = parts.find((p) => p.name === "message");
-
-      if (filePart && filePart.data) {
-        const uploaded = await openai.files.create({
-          file: Buffer.from(filePart.data),
-          filename: filePart.filename,
-          purpose: "assistants",
-        });
-        fileIds.push(uploaded.id);
-      }
-
-      message =
-        messagePart && messagePart.data
-          ? messagePart.data.toString("utf8").trim()
-          : "";
-
-      if (!message && !filePart) {
+      if (!message && fileIds.length === 0) {
         return {
           statusCode: 400,
           body: JSON.stringify({
@@ -89,11 +92,10 @@ export const handler = async (event) => {
           }),
         };
       }
-
-      console.log("Messaggio:", message);
+    }
 
     // --- CASO 2: application/json ---
-    } else if (contentType.includes("application/json")) {
+    else if (contentType.includes("application/json")) {
       const body = JSON.parse(event.body);
       message = body.message || "";
       if (!message) {
