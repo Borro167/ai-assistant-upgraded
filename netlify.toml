@@ -1,9 +1,9 @@
 [build]
-  command = "npm install"
-  publish = "."
+  publish = "frontend"
+  functions = "netlify/functions"
 
-[functions]
-  directory = "netlify/functions"
+[dev]
+  functions = "netlify/functions"
 
 [[redirects]]
   from = "/api/chat"
