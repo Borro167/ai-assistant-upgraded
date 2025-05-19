@@ -26,15 +26,16 @@ export const handler = async (event) => {
       };
     }
 
-    const contentType =
-      event.headers["content-type"] || event.headers["Content-Type"] || "";
+    // Detect Content-Type in modo robusto e case-insensitive
+    const contentType = Object.entries(event.headers || {})
+      .find(([k]) => k.toLowerCase() === "content-type")?.[1] || "";
 
     let message = "";
     let fileIds = [];
 
     // --- CASO 1: multipart/form-data ---
-    if (contentType.includes("multipart/form-data")) {
-      const boundaryMatch = contentType.match(/boundary=([^\s;]+)/);
+    if (contentType.toLowerCase().includes("multipart/form-data")) {
+      const boundaryMatch = contentType.match(/boundary=([^\s;]+)/i);
       if (!boundaryMatch) {
         return {
           statusCode: 400,
@@ -57,38 +58,25 @@ export const handler = async (event) => {
       let messagePart = null;
 
       try {
-        if (bodyBuffer.length < 300) {
-          // Caso: solo testo "message"
-          const raw = bodyBuffer.toString("utf8");
-          const match = raw.match(/name="message"\s+([\s\S]*)--/);
-          message = match ? match[1].trim() : "";
-        } else {
-          const raw = bodyBuffer.toString("utf8");
-          const isValidBoundary = raw.includes(cleanBoundary);
-          if (!isValidBoundary) {
-            throw new Error("Boundary non trovato nel body");
-          }
+        parts = multipart.Parse(bodyBuffer, cleanBoundary).filter(
+          (p) => p && typeof p.data !== "undefined" && p.data !== null
+        );
 
-          parts = multipart.Parse(bodyBuffer, cleanBoundary).filter(
-            (p) => p && typeof p.data !== "undefined" && p.data !== null
-          );
+        filePart = parts.find((p) => p.filename && p.data);
+        messagePart = parts.find((p) => p.name === "message" && p.data);
 
-          filePart = parts.find((p) => p.filename && p.data);
-          messagePart = parts.find((p) => p.name === "message" && p.data);
-
-          if (filePart) {
-            const uploaded = await openai.files.create({
-              file: Buffer.from(filePart.data),
-              filename: filePart.filename,
-              purpose: "assistants",
-            });
-            fileIds.push(uploaded.id);
-          }
-
-          message = messagePart
-            ? messagePart.data.toString("utf8").trim()
-            : "";
+        if (filePart) {
+          const uploaded = await openai.files.create({
+            file: Buffer.from(filePart.data),
+            filename: filePart.filename,
+            purpose: "assistants",
+          });
+          fileIds.push(uploaded.id);
         }
+
+        message = messagePart
+          ? messagePart.data.toString("utf8").trim()
+          : "";
       } catch (err) {
         return {
           statusCode: 400,
@@ -109,7 +97,7 @@ export const handler = async (event) => {
     }
 
     // --- CASO 2: application/json ---
-    else if (contentType.includes("application/json")) {
+    else if (contentType.toLowerCase().includes("application/json")) {
       const body = JSON.parse(event.body);
       message = body.message || "";
       if (!message) {
@@ -119,6 +107,7 @@ export const handler = async (event) => {
         };
       }
     } else {
+      // Content-Type non supportato
       return {
         statusCode: 400,
         body: JSON.stringify({
