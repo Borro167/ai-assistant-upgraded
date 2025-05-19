@@ -42,25 +42,6 @@
   <button onclick="sendMessage()">Invia</button>
 
   <script>
-    const OPENAI_API_KEY = "sk-..."; // ⚠️ sostituisci con chiave visibile solo in locale o in ambienti sicuri
-
-    async function uploadToOpenAI(file) {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("purpose", "assistants");
-
-      const response = await fetch("https://api.openai.com/v1/files", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: formData,
-      });
-
-      const data = await response.json();
-      return data.id;
-    }
-
     async function sendMessage() {
       const input = document.getElementById("userInput");
       const fileInput = document.getElementById("fileInput");
@@ -75,34 +56,34 @@
       chat.appendChild(userMsg);
       chat.scrollTop = chat.scrollHeight;
 
-      let fileId = null;
+      // Prepara il payload (usa FormData se c'è un file, JSON altrimenti)
+      let fetchOptions;
       if (fileInput.files.length > 0) {
-        try {
-          fileId = await uploadToOpenAI(fileInput.files[0]);
-        } catch (err) {
-          const errMsg = document.createElement("div");
-          errMsg.className = "message assistant";
-          errMsg.textContent = "❌ Errore upload file: " + err.message;
-          chat.appendChild(errMsg);
-          return;
-        }
+        // Con file: multipart/form-data
+        const formData = new FormData();
+        formData.append("message", message);
+        formData.append("file", fileInput.files[0]);
+        fetchOptions = {
+          method: "POST",
+          body: formData,
+        };
+      } else {
+        // Solo testo: JSON
+        fetchOptions = {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        };
       }
 
       input.value = "";
       fileInput.value = "";
 
-      const payload = {
-        message,
-        fileId,
-      };
-
       try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
+        // FETCH GIUSTA PER NETLIFY (funziona sia in locale che in prod)
+        const res = await fetch(window.location.origin + "/api/chat", fetchOptions);
 
+        // Gestione risposta PDF
         if (res.status === 200 && res.headers.get("Content-Type") === "application/pdf") {
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
@@ -111,12 +92,12 @@
           link.download = "risultato.pdf";
           link.textContent = "📄 Scarica PDF generato";
           link.target = "_blank";
-
           const msg = document.createElement("div");
           msg.className = "message assistant";
           msg.appendChild(link);
           chat.appendChild(msg);
         } else {
+          // Gestione risposta testuale/errore
           const data = await res.json();
           const reply = document.createElement("div");
           reply.className = "message assistant";
@@ -133,6 +114,7 @@
       }
     }
 
+    // Enter per inviare
     document.getElementById("userInput").addEventListener("keydown", (e) => {
       if (e.key === "Enter") sendMessage();
     });
