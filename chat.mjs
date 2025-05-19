@@ -5,7 +5,19 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export const handler = async (event) => {
   try {
-    console.log("event.headers:", event.headers);
+    // Controllo variabili ambiente
+    if (!process.env.OPENAI_API_KEY) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "API Key OpenAI mancante" }),
+      };
+    }
+    if (!process.env.OPENAI_ASSISTANT_ID) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "Assistant ID mancante" }),
+      };
+    }
 
     if (event.httpMethod !== "POST") {
       return {
@@ -16,7 +28,6 @@ export const handler = async (event) => {
 
     const contentType =
       event.headers["content-type"] || event.headers["Content-Type"] || "";
-    console.log("Detected content-type:", contentType);
 
     let message = "";
     let fileIds = [];
@@ -31,7 +42,6 @@ export const handler = async (event) => {
         };
       }
       const cleanBoundary = boundaryMatch[1];
-      console.log("Boundary trovato:", cleanBoundary);
 
       if (!event.isBase64Encoded) {
         return {
@@ -41,7 +51,6 @@ export const handler = async (event) => {
       }
 
       const bodyBuffer = Buffer.from(event.body, "base64");
-      console.log("Body buffer length:", bodyBuffer.length);
 
       let parts = [];
       let filePart = null;
@@ -53,7 +62,6 @@ export const handler = async (event) => {
           const raw = bodyBuffer.toString("utf8");
           const match = raw.match(/name="message"\s+([\s\S]*)--/);
           message = match ? match[1].trim() : "";
-          console.log("Estratto messaggio da solo testo:", message);
         } else {
           const raw = bodyBuffer.toString("utf8");
           const isValidBoundary = raw.includes(cleanBoundary);
@@ -64,8 +72,6 @@ export const handler = async (event) => {
           parts = multipart.Parse(bodyBuffer, cleanBoundary).filter(
             (p) => p && typeof p.data !== "undefined" && p.data !== null
           );
-
-          console.log("Parts dopo filtro:", parts);
 
           filePart = parts.find((p) => p.filename && p.data);
           messagePart = parts.find((p) => p.name === "message" && p.data);
@@ -84,7 +90,6 @@ export const handler = async (event) => {
             : "";
         }
       } catch (err) {
-        console.error("Errore robusto parse-multipart:", err.message);
         return {
           statusCode: 400,
           body: JSON.stringify({
@@ -137,12 +142,18 @@ export const handler = async (event) => {
       assistant_id: assistantId,
     });
 
-    // --- POLLING STATO RUN ---
+    // --- POLLING STATO RUN (massimo 9 secondi: 18x0.5s) ---
     let result;
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 18; i++) {
       await new Promise((r) => setTimeout(r, 500));
       result = await openai.beta.threads.runs.retrieve(thread.id, run.id);
       if (result.status === "completed") break;
+    }
+    if (result.status !== "completed") {
+      return {
+        statusCode: 504,
+        body: JSON.stringify({ error: "Timeout assistente: la risposta richiede troppo tempo. Riprova più tardi." }),
+      };
     }
 
     // --- RECUPERA RISPOSTA ---
@@ -186,7 +197,6 @@ export const handler = async (event) => {
       body: JSON.stringify({ reply: textReply }),
     };
   } catch (err) {
-    console.error("FATAL ERROR:", err);
     return {
       statusCode: 500,
       body: JSON.stringify({
