@@ -56,34 +56,33 @@
       chat.appendChild(userMsg);
       chat.scrollTop = chat.scrollHeight;
 
-      // Prepara il payload (usa FormData se c'è un file, JSON altrimenti)
-      let fetchOptions;
-      if (fileInput.files.length > 0) {
-        // Con file: multipart/form-data
-        const formData = new FormData();
-        formData.append("message", message);
-        formData.append("file", fileInput.files[0]);
-        fetchOptions = {
-          method: "POST",
-          body: formData,
-        };
-      } else {
-        // Solo testo: JSON
-        fetchOptions = {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message }),
-        };
-      }
-
       input.value = "";
       fileInput.value = "";
 
-      try {
-        // FETCH GIUSTA PER NETLIFY (funziona sia in locale che in prod)
-        const res = await fetch(window.location.origin + "/api/chat", fetchOptions);
+      let payload = { message };
 
-        // Gestione risposta PDF
+      if (fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+        reader.onload = async () => {
+          payload.file = reader.result; // Contiene la stringa Base64
+          await sendToServer(payload);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        await sendToServer(payload);
+      }
+    }
+
+    async function sendToServer(payload) {
+      const chat = document.getElementById("chat");
+      try {
+        const res = await fetch(window.location.origin + "/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
         if (res.status === 200 && res.headers.get("Content-Type") === "application/pdf") {
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
@@ -97,7 +96,6 @@
           msg.appendChild(link);
           chat.appendChild(msg);
         } else {
-          // Gestione risposta testuale/errore
           const data = await res.json();
           const reply = document.createElement("div");
           reply.className = "message assistant";
@@ -114,7 +112,6 @@
       }
     }
 
-    // Enter per inviare
     document.getElementById("userInput").addEventListener("keydown", (e) => {
       if (e.key === "Enter") sendMessage();
     });
